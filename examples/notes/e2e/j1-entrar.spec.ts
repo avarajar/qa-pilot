@@ -12,6 +12,8 @@ test.describe('J1 · Entrar', { tag: '@J1' }, () => {
 
   test('al salir, /notes ya no deja entrar', async ({ page, qa }) => {
     test.skip(qa.role === 'anon', 'sin sesión')
+    // salir invalida la sesión: con la compartida del rol romperíamos los demás tests
+    await qa.login(page)
     await page.goto('/notes')
     await page.getByRole('button', { name: 'Salir' }).click()
     await expect(page).toHaveURL(/\/login$/)

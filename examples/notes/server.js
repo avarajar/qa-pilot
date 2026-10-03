@@ -6,11 +6,20 @@ const app = express()
 app.use(express.urlencoded({ extended: false }))
 
 const sessions = new Map()
-let notes = [
+const seed = () => [
   { id: 1, text: 'Revisar el contrato de qa/' },
   { id: 2, text: 'Grabar la demo' },
   { id: 3, text: 'Pedir feedback al equipo' },
 ]
+// solo en tests (docker-compose): cada test de qa-pilot manda su id en este header y ve sus propias
+// notas, así lo que borra un test no cambia lo que ve otro que corre en paralelo
+const isolationHeader = process.env.NOTES_ISOLATION_HEADER?.toLowerCase()
+const stores = new Map()
+function notesFor(req) {
+  const key = isolationHeader ? String(req.headers[isolationHeader] ?? '') : ''
+  if (!stores.has(key)) stores.set(key, seed())
+  return stores.get(key)
+}
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
@@ -59,6 +68,8 @@ app.post('/login', (req, res) => {
 })
 
 app.post('/logout', (req, res) => {
+  const sid = /(?:^|;\s*)sid=([a-f0-9]+)/.exec(req.headers.cookie ?? '')?.[1]
+  if (sid) sessions.delete(sid)
   res.setHeader('Set-Cookie', 'sid=; Max-Age=0; Path=/')
   res.redirect('/login')
 })
@@ -66,7 +77,7 @@ app.post('/logout', (req, res) => {
 app.get('/notes', (req, res) => {
   const user = currentUser(req)
   if (!user) return res.redirect('/login')
-  const items = notes.map(n => `<li><span>${esc(n.text)}</span>${canDelete(user)
+  const items = notesFor(req).map(n => `<li><span>${esc(n.text)}</span>${canDelete(user)
     ? `<form method="post" action="/notes/${n.id}/delete"><button class="danger" type="submit" aria-label="Borrar «${esc(n.text)}»">Borrar</button></form>` : ''}</li>`).join('')
   res.send(page('Notas', `<header><h1>Notas</h1><span class="muted">${esc(user.email)} · ${esc(user.role)}</span></header>
   <ul>${items || '<li class="muted">No hay notas.</li>'}</ul>
@@ -77,7 +88,9 @@ app.post('/notes/:id/delete', (req, res) => {
   const user = currentUser(req)
   if (!user) return res.redirect('/login')
   if (!canDelete(user)) return res.status(403).send(page('Sin permiso', '<h1>Sin permiso</h1><p>Solo un admin puede borrar notas.</p>'))
-  notes = notes.filter(n => String(n.id) !== req.params.id)
+  const notes = notesFor(req)
+  const i = notes.findIndex(n => String(n.id) === req.params.id)
+  if (i >= 0) notes.splice(i, 1)
   res.redirect('/notes')
 })
 
