@@ -4,6 +4,7 @@
 Un usuario con la contraseña correcta entra y ve la lista de notas.
 Con la contraseña incorrecta ve un error y no entra.
 Sin sesión, /notes manda a /login.
+Al salir, vuelve a /login y /notes ya no deja entrar.
 
 ## J2 · Solo admin borra
 El admin ve "Borrar" en cada nota y puede borrar.
