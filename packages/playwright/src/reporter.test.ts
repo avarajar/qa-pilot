@@ -32,6 +32,16 @@ describe('classify', () => {
     const f = classify(tc('crea', 'unexpected', ['@J2']), res('failed', ['Error: Timed out waiting for getByRole(button)', 'Error: toHaveScreenshot failed']))
     expect(f[0]).toMatchObject({ kind: 'test-failed', journey: 'J2' })
   })
+  it('quita los colores ANSI y agrega lo esperado y lo recibido', () => {
+    const msg = 'Error: \x1b[2mexpect(\x1b[22m\x1b[31mreceived\x1b[39m\x1b[2m).\x1b[22mtoBe\x1b[2m(\x1b[22m\x1b[32mexpected\x1b[39m\x1b[2m) // Object.is equality\x1b[22m\n\nExpected: \x1b[32m403\x1b[39m\nReceived: \x1b[31m200\x1b[39m\n\n    at e2e/j2.spec.ts:9'
+    expect(classify(tc('borra', 'unexpected', ['@J2']), res('failed', [msg]))[0]!.message)
+      .toBe('owner-mobile › borra: Error: expect(received).toBe(expected) // Object.is equality (esperado: 403 · recibido: 200)')
+  })
+  it('con toHaveURL toma "Expected pattern" y "Received string"', () => {
+    const msg = 'Error: expect(page).toHaveURL(expected) failed\n\nExpected pattern: /\\/login$/\nReceived string:  "http://localhost:3100/notes"\nTimeout: 5000ms'
+    expect(classify(tc('sale', 'unexpected'), res('failed', [msg]))[0]!.message)
+      .toBe('owner-mobile › sale: Error: expect(page).toHaveURL(expected) failed (esperado: /\\/login$/ · recibido: "http://localhost:3100/notes")')
+  })
   it('test omitido → sin hallazgo', () => {
     expect(classify(tc('x', 'skipped'), res('skipped'))).toEqual([])
   })
