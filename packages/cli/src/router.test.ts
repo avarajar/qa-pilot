@@ -154,6 +154,13 @@ describe('oráculo (G3)', () => {
   })
 })
 
+describe('mensajes de hallazgos', () => {
+  it('quita colores ANSI vengan de donde vengan', () => {
+    const d = decide({ files: [file('web/a.ts')] }, [{ check: 'unit', status: 'fail', findings: [{ kind: 'test-failed', message: '\x1b[31mboom\x1b[39m' }] }], ['unit'])
+    expect(d.findings[0]!.message).toBe('boom')
+  })
+})
+
 describe('tamaño de la decisión', () => {
   it('guarda como máximo 50 hallazgos y cuenta los omitidos', () => {
     const many = Array.from({ length: 80 }, (_, i) => ({ kind: 'flaky' as const, message: `t${i}` }))

@@ -36,6 +36,12 @@ describe('defineQaConfig', () => {
     expect(c.reporter).toEqual([['list'], ['@qa-pilot/playwright/reporter', { outputDir: join(r, 'qa-results') }]])
   })
 
+  it('isolationHeader llega a los tests como opción; sin él no se manda nada', () => {
+    const r = root()
+    expect((defineQaConfig({}, { root: r, isolationHeader: 'x-qa-test' }).use as { qaIsolationHeader?: string }).qaIsolationHeader).toBe('x-qa-test')
+    expect(defineQaConfig({}, { root: r }).use).not.toHaveProperty('qaIsolationHeader')
+  })
+
   it('los overrides del proyecto ganan', () => {
     const c = defineQaConfig({ testDir: 'tests/e2e', retries: 0 }, { root: root() })
     expect(c.testDir).toBe('tests/e2e')

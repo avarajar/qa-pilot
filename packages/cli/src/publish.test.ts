@@ -10,6 +10,8 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     comments: new Map<string, string>(),
     statuses: [] as Array<{ sha: string; state: string; description: string }>,
     autoMerge: [] as Array<{ number: number; nodeId: string; sha: string }>,
+    reactions: [] as Array<{ commentId: number; content: string }>,
+    replies: [] as string[],
   }
   const gh: GitHub = {
     async getPr(n) { return { number: n, headSha, labels: [...state.labels], nodeId: 'PR_node' } },
@@ -18,6 +20,8 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     async findComment(_n, marker) { return state.comments.get(marker) ?? null },
     async setStatus(sha, s, description) { state.statuses.push({ sha, state: s, description }) },
     async enableAutoMerge(pr) { state.autoMerge.push(pr) },
+    async react(commentId, content) { state.reactions.push({ commentId, content }) },
+    async comment(_n, body) { state.replies.push(body) },
   }
   return { gh, state }
 }
@@ -39,6 +43,13 @@ describe('renderComment / extractDecision', () => {
   it('JSON roto o sin marcador → null', () => {
     expect(extractDecision('hola')).toBeNull()
     expect(extractDecision(`${MARKER}\n{roto\n-->`)).toBeNull()
+  })
+})
+
+describe('pie del comentario', () => {
+  it('singular y plural de archivos', () => {
+    expect(renderComment(decision({ diff: { files: 1, added: 1, removed: 0 } }))).toContain('1 archivo ·')
+    expect(renderComment(decision({ diff: { files: 2, added: 1, removed: 0 } }))).toContain('2 archivos ·')
   })
 })
 
@@ -138,6 +149,31 @@ describe('approveCheck', () => {
   it('el login del aprobador no distingue mayúsculas', async () => {
     const { gh } = await setup()
     expect((await approveCheck(gh, 7, { action: 'labeled', actor: 'AvaRajar', label: LABELS.approved }, ['avarajar'])).approved).toBe(true)
+  })
+  it('al aprobar se ve en el PR: etiqueta, comentario de decisión y 👍', async () => {
+    const { gh, state } = await setup()
+    await approveCheck(gh, 7, { action: 'created', actor: 'avarajar', comment: '/qa approve', commentId: 99 }, ['avarajar'])
+    expect([...state.labels]).toEqual([LABELS.approved])
+    const body = state.comments.get(MARKER)!
+    expect(body).toContain('Aprobado por @avarajar')
+    expect(body).not.toContain('Para aprobar')
+    expect(extractDecision(body)?.decision).toBe('escalate')
+    expect(state.reactions).toEqual([{ commentId: 99, content: '+1' }])
+    expect(state.replies).toEqual([])
+  })
+  it('si un /qa approve no vale, responde en el PR con el motivo y 👎', async () => {
+    const { gh, state } = await setup()
+    await approveCheck(gh, 7, { action: 'created', actor: 'otro', comment: '/qa approve', commentId: 99 }, ['avarajar'])
+    expect(state.replies).toHaveLength(1)
+    expect(state.replies[0]).toContain('otro no está en approvers')
+    expect(state.reactions).toEqual([{ commentId: 99, content: '-1' }])
+    expect([...state.labels]).toEqual([LABELS.needsHuman])
+  })
+  it('un comentario cualquiera no recibe respuesta', async () => {
+    const { gh, state } = await setup()
+    await approveCheck(gh, 7, { action: 'created', actor: 'otro', comment: 'se ve bien', commentId: 99 }, ['avarajar'])
+    expect(state.replies).toEqual([])
+    expect(state.reactions).toEqual([])
   })
   it('decisión blocked no se puede aprobar', async () => {
     const { gh } = await setup('sha1', decision({ decision: 'blocked' }))

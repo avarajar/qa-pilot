@@ -1,17 +1,33 @@
 import { test as base, expect, type Locator, type Page } from '@playwright/test'
 import { AxeBuilder } from '@axe-core/playwright'
+import { loadContract } from 'qa-pilot'
+import { loginAs } from './auth/login.js'
+import { findRoot } from './config.js'
 
 export type Qa = {
   role: string
   snap(page: Page, name: string, opts?: { mask?: Locator[] }): Promise<void>
   a11y(page: Page): Promise<void>
+  // sesión nueva solo para este test: para tests que salen o invalidan la sesión, que la
+  // compartida (storageState del rol) la usan los demás tests en paralelo
+  login(page: Page): Promise<void>
 }
 
-export const test = base.extend<{ qa: Qa }, { qaRole: string }>({
+export const test = base.extend<{ qa: Qa; qaIsolationHeader: string | undefined }, { qaRole: string }>({
   qaRole: ['anon', { option: true, scope: 'worker' }],
+  qaIsolationHeader: [undefined, { option: true }],
+  extraHTTPHeaders: async ({ extraHTTPHeaders, qaIsolationHeader }, use, testInfo) => {
+    // con reintento cambia el id: el reintento no hereda lo que dejó el intento fallido
+    await use(qaIsolationHeader ? { ...extraHTTPHeaders, [qaIsolationHeader]: `${testInfo.testId}-${testInfo.retry}` } : extraHTTPHeaders)
+  },
   qa: async ({ qaRole }, use) => {
     await use({
       role: qaRole,
+      async login(page) {
+        if (qaRole === 'anon') throw new Error('qa.login: el rol anon no tiene sesión')
+        await page.context().clearCookies()
+        await loginAs(page, loadContract(findRoot()).config, qaRole)
+      },
       async snap(page, name, opts = {}) {
         // claro y oscuro; soft para que un cambio en un tema no oculte el otro
         for (const colorScheme of ['light', 'dark'] as const) {

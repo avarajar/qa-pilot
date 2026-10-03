@@ -169,8 +169,9 @@ añadir escalamientos, nunca quitarlos.
 `qa-pilot approve-check` (job `approval`, en eventos `labeled` e
 `issue_comment`): lee el JSON del comentario; si `sha` = HEAD del PR y el actor
 del evento está en `approvers` y aplicó `qa:approved` o comentó `/qa approve`,
-pone el status en `success` y activa auto-merge. Si no, no cambia nada y lo
-explica en el log. Se usa etiqueta o comentario porque el agente abre los PRs
+pone el status en `success`, cambia la etiqueta a `qa:approved`, marca el
+comentario de decisión como aprobado, reacciona 👍 al comentario y activa
+auto-merge. Si no, responde en el PR con el motivo y reacciona 👎. Se usa etiqueta o comentario porque el agente abre los PRs
 con el usuario del dev y GitHub no permite aprobar un PR propio.
 
 Branch protection requiere `qa-pilot/decision`.

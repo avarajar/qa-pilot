@@ -14,6 +14,8 @@ const CI_GLOBS = ['.github/**', '.gitlab-ci.yml', '.circleci/**', '.buildkite/**
 
 export const MAX_FINDINGS = 50
 
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
+
 // en protected-paths, ()[] son literales: rutas de Next como app/(app)/celdas/[slug]
 const literal = (glob: string) => glob.replace(/[()[\]]/g, c => `\\${c}`)
 
@@ -95,7 +97,8 @@ export function route(input: {
   const hitOracle = [...new Set(paths.filter(isOracle))]
   if (hitOracle.length) gates.push({ id: 'G3', reason: hitOracle.join(', ') })
 
-  const findings = results.flatMap(r => r.findings.map(f => ({ ...f, check: r.check })))
+  // cualquier herramienta puede mandar mensajes coloreados para la terminal; en el PR se ven como basura
+  const findings = results.flatMap(r => r.findings.map(f => ({ ...f, message: stripAnsi(f.message), check: r.check })))
 
   const journeyHits = findings.filter(f =>
     (f.kind === 'visual-diff' && (f.journey || router.visual_diff === 'escalate')) ||

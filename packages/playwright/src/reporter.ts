@@ -10,6 +10,17 @@ type Finding = {
   artifact?: string
 }
 
+// los errores de expect vienen coloreados para la terminal
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
+
+// la primera línea de un expect fallido no dice qué salió: se le suma lo esperado y lo recibido
+function summarize(message: string): string {
+  const first = message.split('\n')[0]!
+  const expected = /^\s*Expected[^:\n]*:\s*(.+)$/m.exec(message)?.[1]?.trim()
+  const received = /^\s*Received[^:\n]*:\s*(.+)$/m.exec(message)?.[1]?.trim()
+  return expected && received ? `${first} (esperado: ${expected} · recibido: ${received})` : first
+}
+
 const isScreenshot = (msg: string) => /toHaveScreenshot|Screenshot comparison failed|screenshot.*differ/i.test(msg)
 const isA11y = (msg: string) => /^(Error: )?a11y:/m.test(msg)
 
@@ -29,13 +40,13 @@ export function classify(test: TestCase, result: TestResult): Finding[] {
   if (outcome === 'flaky') return [{ kind: 'flaky', message: `${label} pasó al reintentar`, ...base }]
   if (outcome !== 'unexpected') return []
 
-  const messages = result.errors.map(e => e.message ?? '')
+  const messages = result.errors.map(e => stripAnsi(e.message ?? ''))
   if (messages.length && messages.every(isScreenshot)) return [{ kind: 'visual-diff', message: `${label}: la captura cambió`, ...base }]
   const a11y = messages.find(isA11y)
   if (a11y && messages.every(m => isA11y(m) || isScreenshot(m))) {
     return [{ kind: 'a11y', message: `${label}: ${a11y.replace(/^Error: /, '').split('\n')[0]}`, ...base }]
   }
-  return [{ kind: 'test-failed', message: `${label}: ${(messages[0] ?? 'falló').split('\n')[0]}`, ...base }]
+  return [{ kind: 'test-failed', message: `${label}: ${summarize(messages[0] ?? 'falló')}`, ...base }]
 }
 
 export default class QaReporter implements Reporter {

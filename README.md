@@ -26,6 +26,11 @@ Ver `docs/specs/2026-10-02-qa-pilot-fase-1-design.md`.
    })
    ```
 
+   Los tests corren en paralelo contra el mismo servidor. Si un test sale de la sesión,
+   que llame antes a `qa.login(page)` para no invalidar la sesión compartida del rol.
+   Si un test cambia datos, `defineQaConfig({}, { isolationHeader: 'x-qa-test' })` manda
+   un id distinto por test en ese header para que la app separe sus datos (ver `examples/notes`).
+
    El comando `setup` del proyecto instala dependencias y el navegador
    (`npm ci && npx playwright install --with-deps chromium`).
 3. Agrega el workflow (ver el encabezado de `.github/workflows/qa.yml`; necesita `contents: write` para el auto-merge) y exige el

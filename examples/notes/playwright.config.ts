@@ -4,4 +4,5 @@ import { defineQaConfig } from '@qa-pilot/playwright'
 process.env.NOTES_ADMIN_PASSWORD ??= 'admin-demo'
 process.env.NOTES_USER_PASSWORD ??= 'user-demo'
 
-export default defineQaConfig()
+// x-qa-test: cada test ve sus propias notas (ver NOTES_ISOLATION_HEADER en docker-compose.yml)
+export default defineQaConfig({}, { isolationHeader: 'x-qa-test' })

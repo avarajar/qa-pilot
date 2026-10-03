@@ -132,7 +132,8 @@ jobs:
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/qa approve'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions: { contents: write, pull-requests: write, statuses: write }
+    # issues: write para la etiqueta, la respuesta y la reacción al /qa approve
+    permissions: { contents: write, pull-requests: write, issues: write, statuses: write }
     env: { ROOT: '${{ inputs.root }}' }
     steps:
       # los aprobadores salen de la rama base: un PR no puede agregarse a sí mismo

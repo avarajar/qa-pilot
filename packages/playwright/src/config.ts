@@ -30,7 +30,10 @@ export function contract(opts: { root?: string } = {}): QaContract {
   return loadContract(opts.root ?? findRoot())
 }
 
-export function defineQaConfig(overrides: PlaywrightTestConfig = {}, opts: { root?: string } = {}): PlaywrightTestConfig {
+// isolationHeader: cada test manda ese header con un id propio, para que la app separe sus datos
+// por test (los tests corren en paralelo contra el mismo servidor). Opt-in: un header propio en
+// peticiones a otros dominios puede romper CORS.
+export function defineQaConfig(overrides: PlaywrightTestConfig = {}, opts: { root?: string; isolationHeader?: string } = {}): PlaywrightTestConfig {
   const root = opts.root ?? findRoot()
   const { config } = loadContract(root)
   // el globalSetup corre en este mismo proceso y lee la raíz de aquí
@@ -62,7 +65,11 @@ export function defineQaConfig(overrides: PlaywrightTestConfig = {}, opts: { roo
     globalSetup: fileURLToPath(new URL('./global-setup.js', import.meta.url)),
     outputDir: join(outDir(root), 'playwright'),
     ...overrides,
-    use: { baseURL: config.app.url, reducedMotion: 'reduce', trace: 'retain-on-failure', ...overrides.use },
+    use: {
+      baseURL: config.app.url, reducedMotion: 'reduce', trace: 'retain-on-failure',
+      ...(opts.isolationHeader ? { qaIsolationHeader: opts.isolationHeader } : {}),
+      ...overrides.use,
+    } as PlaywrightTestConfig['use'],
     projects: overrides.projects ?? projects,
   }
 }
