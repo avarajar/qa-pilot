@@ -59,7 +59,6 @@ app.post('/login', (req, res) => {
 })
 
 app.post('/logout', (req, res) => {
-  res.setHeader('Set-Cookie', 'sid=; Max-Age=0; Path=/')
   res.redirect('/login')
 })
 
