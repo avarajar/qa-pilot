@@ -1,0 +1,21 @@
+# Mismo qa-pilot que un proyecto Next.js + Supabase, otro stack: Express + docker-compose + login por formulario.
+app:
+  env: docker-compose
+  compose_file: docker-compose.yml
+  setup: pnpm install && pnpm exec playwright install chromium
+  url: http://localhost:3100
+  ready_timeout_s: 90
+auth:
+  adapter: form
+  login_url: /login
+  fields: { email: '#email', password: '#password', submit: 'button[type=submit]' }
+roles:
+  admin: { email: admin@notes.test, password_env: NOTES_ADMIN_PASSWORD }
+  user:  { email: user@notes.test, password_env: NOTES_USER_PASSWORD }
+  anon:  { email: nadie@notes.test, expect: rejected }
+checks:
+  unit: node --test --test-reporter=junit --test-reporter-destination="$QA_PILOT_OUT/raw/unit.xml" test/*.test.js
+  e2e: pnpm exec playwright test
+router:
+  auto_max_lines: 200
+approvers: [avarajar]

@@ -1,0 +1,35 @@
+{
+  "name": "@qa-pilot/playwright",
+  "version": "0.1.0",
+  "description": "Preset de Playwright para qa-pilot: roles, viewports, temas, axe, screenshots y reporter",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./reporter": "./dist/reporter.js",
+    "./global-setup": "./dist/global-setup.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.50"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "qa-pilot": "workspace:*"
+  }
+}

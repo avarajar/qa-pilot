@@ -1,0 +1,195 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/avarajar/qa-pilot/spec/qa-pilot.schema.json",
+  "title": "qa-pilot.yaml",
+  "description": "Configuración de qa-pilot para un proyecto (carpeta qa/).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "app"
+  ],
+  "properties": {
+    "extends": {
+      "type": "string",
+      "description": "Ruta relativa a qa/ de un archivo que se mezcla por debajo."
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "env",
+        "url"
+      ],
+      "properties": {
+        "env": {
+          "enum": [
+            "supabase-local",
+            "docker-compose",
+            "command"
+          ]
+        },
+        "dir": {
+          "type": "string",
+          "default": "."
+        },
+        "setup": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "ready_timeout_s": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 120
+        },
+        "seed": {
+          "type": "string"
+        },
+        "compose_file": {
+          "type": "string"
+        },
+        "env_map": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "vars": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Variables de entorno fijas y no secretas para setup, start y checks."
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "enum": [
+            "supabase-magiclink",
+            "form",
+            "none"
+          ],
+          "default": "none"
+        },
+        "callback": {
+          "type": "string"
+        },
+        "login_url": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "email",
+            "password",
+            "submit"
+          ],
+          "properties": {
+            "email": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            },
+            "submit": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password_env": {
+            "type": "string"
+          },
+          "expect": {
+            "enum": [
+              "rejected"
+            ]
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "type": "string"
+        },
+        "e2e": {
+          "type": "string"
+        },
+        "security": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "semgrep",
+              "gitleaks"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1800,
+          "description": "Tiempo máximo de cada paso (setup, seed y cada check) en segundos."
+        }
+      }
+    },
+    "router": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "auto_max_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 200
+        },
+        "visual_diff": {
+          "enum": [
+            "warn",
+            "escalate"
+          ],
+          "default": "warn"
+        },
+        "flaky_in_journey": {
+          "enum": [
+            "warn",
+            "escalate"
+          ],
+          "default": "escalate"
+        }
+      }
+    },
+    "approvers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    }
+  }
+}

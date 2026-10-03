@@ -1,0 +1,7 @@
+services:
+  notes:
+    build: .
+    ports: ["3100:3100"]
+    environment:
+      NOTES_ADMIN_PASSWORD: ${NOTES_ADMIN_PASSWORD:-admin-demo}
+      NOTES_USER_PASSWORD: ${NOTES_USER_PASSWORD:-user-demo}

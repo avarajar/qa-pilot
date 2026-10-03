@@ -1,0 +1,145 @@
+# Workflow reutilizable de qa-pilot. Un proyecto lo usa así (.github/workflows/qa.yml):
+#
+#   name: qa
+#   on:
+#     pull_request: { types: [opened, synchronize, reopened, labeled] }
+#     issue_comment: { types: [created] }
+#   permissions: { contents: write, pull-requests: write, issues: write, statuses: write }
+#   jobs:
+#     qa:
+#       uses: avarajar/qa-pilot/.github/workflows/qa.yml@<sha o tag>
+#
+# Branch protection debe exigir el status "qa-pilot/decision".
+#
+# Separación de confianza:
+#   checks   corre el código del PR, sin permisos de escritura ni credenciales guardadas.
+#            Solo produce resultados de tests (lo único que el PR puede falsear).
+#   publish  no ejecuta código del PR: usa qa/ de la rama base, recalcula el diff y los
+#            gates (G1, G3, G5) y publica sobre el SHA del head del PR.
+#   approval también lee los aprobadores de la rama base, nunca del PR.
+# PRs desde forks no están soportados: su token es de solo lectura y no reciben status.
+name: qa-pilot
+
+on:
+  workflow_call:
+    inputs:
+      qa-pilot-ref:
+        description: Rama, tag o SHA de qa-pilot a usar
+        type: string
+        default: main
+      node-version:
+        type: string
+        default: '22'
+
+jobs:
+  checks:
+    # "labeled" también llega aquí; solo una etiqueta de aprobación interesa, y la atiende el job approval
+    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: { contents: read }
+    concurrency:
+      group: qa-pilot-checks-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: avarajar/qa-pilot, ref: '${{ inputs.qa-pilot-ref }}', path: .qa-pilot, persist-credentials: false }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '${{ inputs.node-version }}' }
+      - name: Instalar qa-pilot
+        run: |
+          corepack enable
+          (cd .qa-pilot && pnpm install --frozen-lockfile && pnpm -r --filter './packages/*' build)
+          npm link ./.qa-pilot/packages/cli
+          echo ".qa-pilot/" >> .git/info/exclude
+          # el preset de Playwright como tarball, para que el proyecto lo instale con su propio @playwright/test
+          mkdir -p "$RUNNER_TEMP/qa-pilot-pkgs"
+          (cd .qa-pilot/packages/cli && pnpm pack --pack-destination "$RUNNER_TEMP/qa-pilot-pkgs" >/dev/null)
+          (cd .qa-pilot/packages/playwright && pnpm pack --pack-destination "$RUNNER_TEMP/qa-pilot-pkgs" >/dev/null)
+          echo "QA_PILOT_PRESET=$(ls "$RUNNER_TEMP"/qa-pilot-pkgs/*.tgz | tr '\n' ' ')" >> "$GITHUB_ENV"
+      - name: Herramientas de seguridad
+        run: |
+          security="$(qa-pilot config get checks.security 2>/dev/null || echo '[]')"
+          if [[ "$security" == *semgrep* ]]; then pipx install semgrep; fi
+          if [[ "$security" == *gitleaks* ]]; then
+            curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
+          fi
+      - name: qa-pilot run
+        env: { BASE_SHA: '${{ github.event.pull_request.base.sha }}' }
+        run: qa-pilot run --base "$BASE_SHA"
+      # sin raw/ (salidas crudas, p. ej. de gitleaks) ni .auth/ (sesiones de prueba)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: qa-results
+          retention-days: 14
+          path: |
+            qa-results/*.json
+            qa-results/artifacts/
+
+  publish:
+    needs: checks
+    if: always() && github.event_name == 'pull_request' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: { contents: write, pull-requests: write, issues: write, statuses: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ github.event.pull_request.base.sha }}', fetch-depth: 0 }
+      - name: Traer los commits del PR (solo para el diff; no se ejecutan)
+        env: { PR: '${{ github.event.pull_request.number }}' }
+        run: git fetch --no-tags origin "+refs/pull/$PR/head:refs/qa-pilot/head"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: avarajar/qa-pilot, ref: '${{ inputs.qa-pilot-ref }}', path: .qa-pilot, persist-credentials: false }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '${{ inputs.node-version }}' }
+      - name: Instalar qa-pilot
+        run: |
+          corepack enable
+          (cd .qa-pilot && pnpm install --frozen-lockfile && pnpm --filter qa-pilot build)
+          npm link ./.qa-pilot/packages/cli
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with: { name: qa-results, path: qa-results }
+      - name: Decidir con la configuración de la rama base
+        env:
+          BASE_SHA: '${{ github.event.pull_request.base.sha }}'
+          HEAD_SHA: '${{ github.event.pull_request.head.sha }}'
+        run: |
+          rm -f qa-results/decision.json
+          qa-pilot route --base "$BASE_SHA" --head "$HEAD_SHA"
+      - name: Publicar decisión
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: qa-pilot publish
+
+  approval:
+    # liviano: no corre tests, solo valida quién aprobó y libera el status
+    if: >-
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'qa:approved') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/qa approve'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: { contents: write, pull-requests: write, statuses: write }
+    steps:
+      # los aprobadores salen de la rama base: un PR no puede agregarse a sí mismo
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: avarajar/qa-pilot, ref: '${{ inputs.qa-pilot-ref }}', path: .qa-pilot, persist-credentials: false }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '${{ inputs.node-version }}' }
+      - name: Instalar qa-pilot
+        run: |
+          corepack enable
+          (cd .qa-pilot && pnpm install --frozen-lockfile && pnpm --filter qa-pilot build)
+          npm link ./.qa-pilot/packages/cli
+      - name: Validar aprobación
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: qa-pilot approve-check

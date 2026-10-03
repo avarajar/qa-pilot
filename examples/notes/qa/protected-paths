@@ -1,0 +1,4 @@
+# Cambios aquí siempre escalan a un humano (G1)
+auth.js           # usuarios, contraseñas y permisos
+Dockerfile
+docker-compose.yml
