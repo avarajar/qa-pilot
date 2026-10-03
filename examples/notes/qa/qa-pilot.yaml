@@ -16,7 +16,8 @@ roles:
   anon:  { email: nadie@notes.test, expect: rejected }
 checks:
   unit: node --test --test-reporter=junit --test-reporter-destination="$QA_PILOT_OUT/raw/unit.xml" test/*.test.js
-  e2e: pnpm exec playwright test
+  # sin pnpm dentro del contenedor: pnpm 11 intenta verificar dependencias antes de correr
+  e2e: npx --no-install playwright test
 router:
   auto_max_lines: 200
 approvers: [avarajar]
