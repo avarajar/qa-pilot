@@ -66,7 +66,7 @@ app.post('/logout', (req, res) => {
 app.get('/notes', (req, res) => {
   const user = currentUser(req)
   if (!user) return res.redirect('/login')
-  const items = notes.map(n => `<li><span>${esc(n.text)}</span>${canDelete(user)
+  const items = notes.map(n => `<li><span>${esc(n.text)}</span>${user
     ? `<form method="post" action="/notes/${n.id}/delete"><button class="danger" type="submit" aria-label="Borrar «${esc(n.text)}»">Borrar</button></form>` : ''}</li>`).join('')
   res.send(page('Notas', `<header><h1>Notas</h1><span class="muted">${esc(user.email)} · ${esc(user.role)}</span></header>
   <ul>${items || '<li class="muted">No hay notas.</li>'}</ul>
