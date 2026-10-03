@@ -10,6 +10,15 @@ test.describe('J1 · Entrar', { tag: '@J1' }, () => {
     await qa.a11y(page)
   })
 
+  test('al salir, /notes ya no deja entrar', async ({ page, qa }) => {
+    test.skip(qa.role === 'anon', 'sin sesión')
+    await page.goto('/notes')
+    await page.getByRole('button', { name: 'Salir' }).click()
+    await expect(page).toHaveURL(/\/login$/)
+    await page.goto('/notes')
+    await expect(page).toHaveURL(/\/login$/)
+  })
+
   test('sin sesión /notes manda a /login', async ({ page, qa }) => {
     test.skip(qa.role !== 'anon', 'solo sin sesión')
     await page.goto('/notes')
