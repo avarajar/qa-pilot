@@ -3,7 +3,7 @@ app:
   env: docker-compose
   compose_file: docker-compose.yml
   # en el workspace del repo: compila el preset local antes de los tests
-  setup: pnpm install && pnpm --dir ../.. -r --filter './packages/*' build && pnpm exec playwright install --with-deps chromium
+  setup: pnpm install && pnpm --dir ../.. --filter qa-pilot --filter @qa-pilot/playwright build && pnpm exec playwright install --with-deps chromium
   url: http://localhost:3100
   ready_timeout_s: 90
 auth:
