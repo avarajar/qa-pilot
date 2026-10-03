@@ -83,3 +83,5 @@ app.post('/notes/:id/delete', (req, res) => {
 
 const port = Number(process.env.PORT ?? 3100)
 app.listen(port, () => console.log(`notes en http://localhost:${port}`))
+
+// Notas de ejemplo para qa-pilot.
