@@ -16,6 +16,7 @@ export function verify(list, email, password) {
   return u && typeof password === 'string' && same(u.password, password) ? { email: u.email, role: u.role } : null
 }
 
+// solo admin borra: regla de negocio
 export function canDelete(user) {
   return user?.role === 'admin'
 }
