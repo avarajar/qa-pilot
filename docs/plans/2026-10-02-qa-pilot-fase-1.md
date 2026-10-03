@@ -128,7 +128,7 @@ export interface GitHub {            // implementación real con fetch + GITHUB_
   upsertComment(n: number, marker: string, body: string): Promise<void>
   findComment(n: number, marker: string): Promise<string | null>
   setStatus(sha: string, state: 'success'|'pending'|'failure', description: string): Promise<void>
-  enableAutoMerge(nodeId: string): Promise<void>    // GraphQL enablePullRequestAutoMerge, SQUASH
+  enableAutoMerge(pr: { number: number; nodeId: string; sha: string }): Promise<void>  // GraphQL enablePullRequestAutoMerge, SQUASH; si el PR ya está listo, PUT /merge con ese sha
 }
 export function renderComment(d: Decision): string          // resumen + JSON entre marcadores
 export function extractDecision(body: string): Decision | null
