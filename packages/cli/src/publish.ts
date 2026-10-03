@@ -27,7 +27,7 @@ export async function publish(gh: GitHub, pr: number, d: Decision): Promise<void
   const gates = d.gates.map(g => g.id).join(', ')
   await gh.setStatus(d.sha, STATUS[d.decision], gates ? `${DESCRIPTION[d.decision]} (${gates})` : DESCRIPTION[d.decision])
   await gh.upsertComment(pr, MARKER, renderComment(d))
-  if (d.decision === 'auto') await gh.enableAutoMerge(current.nodeId)
+  if (d.decision === 'auto') await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: d.sha })
 }
 
 export type ApprovalEvent = { action: 'labeled' | 'created'; actor: string; label?: string; comment?: string }
@@ -52,6 +52,6 @@ export async function approveCheck(
     return { approved: false, reason: `la decisión es del commit ${d.sha.slice(0, 7)} pero el PR va en ${current.headSha.slice(0, 7)}; espera la corrida nueva` }
   }
   await gh.setStatus(d.sha, 'success', `Aprobado por ${ev.actor}`)
-  await gh.enableAutoMerge(current.nodeId)
+  await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: d.sha })
   return { approved: true, reason: `aprobado por ${ev.actor}` }
 }

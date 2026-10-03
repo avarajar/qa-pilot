@@ -127,6 +127,7 @@ type Finding = {
 | Gate | Se activa si |
 |---|---|
 | G1 · ruta protegida | un archivo del diff coincide con `protected-paths` |
+| G2 · zona sensible del repo | cambia la config de CI (`.github/**`, `.gitlab-ci.yml`, `.circleci/**`, `.buildkite/**`) o, si el proyecto está en una subcarpeta, un archivo de la raíz del repo (lockfiles, `package.json` del workspace). Fijo: el proyecto no lo puede desactivar |
 | G3 · oráculo | cambian archivos de tests e2e, imágenes base de screenshots (`*-snapshots/**`) o `qa/**` |
 | G4 · journey crítico | hay un finding `visual-diff` o `flaky` con `journey` (según `router.*`) |
 | G5 · tamaño | líneas añadidas + borradas > `auto_max_lines` |
@@ -161,7 +162,9 @@ añadir escalamientos, nunca quitarlos.
   entre `<!-- qa-pilot:decision` y `-->`.
 - Status `qa-pilot/decision` sobre el SHA: `success` si `auto`, `pending` si
   `escalate`, `failure` si `blocked`.
-- Si `auto`: activa auto-merge (`gh pr merge --auto --squash`).
+- Si `auto`: activa auto-merge (`gh pr merge --auto --squash`). Si el PR ya se
+  puede mergear (el status recién puesto era lo último que faltaba), GitHub no
+  acepta auto-merge y se mergea directo, solo si el head sigue en el SHA evaluado.
 
 `qa-pilot approve-check` (job `approval`, en eventos `labeled` e
 `issue_comment`): lee el JSON del comentario; si `sha` = HEAD del PR y el actor

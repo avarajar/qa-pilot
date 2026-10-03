@@ -9,6 +9,9 @@ const ORACLE_GLOBS = [
   '**/playwright.config.*', 'playwright.config.*', '**/vitest.config.*', 'vitest.config.*',
 ]
 
+// G2: lo que cambia cómo corre el CI, para cualquier proyecto del repo
+const CI_GLOBS = ['.github/**', '.gitlab-ci.yml', '.circleci/**', '.buildkite/**']
+
 export const MAX_FINDINGS = 50
 
 // en protected-paths, ()[] son literales: rutas de Next como app/(app)/celdas/[slug]
@@ -79,6 +82,14 @@ export function route(input: {
   const isProtected = matcher(contract.protectedPaths.flatMap(expandProtected))
   const hitProtected = [...new Set(paths.filter(isProtected))]
   if (hitProtected.length) gates.push({ id: 'G1', reason: hitProtected.join(', ') })
+
+  // con el proyecto en una subcarpeta, los archivos de la raíz del repo (lockfiles, package.json del
+  // workspace) le afectan sin verse en su diff; con el proyecto en la raíz eso ya es protected-paths
+  if (diff.repo) {
+    const isSensitive = matcher(diff.repo.prefix ? [...CI_GLOBS, '*'] : CI_GLOBS)
+    const hitSensitive = diff.repo.paths.filter(isSensitive)
+    if (hitSensitive.length) gates.push({ id: 'G2', reason: hitSensitive.join(', ') })
+  }
 
   const isOracle = matcher(ORACLE_GLOBS)
   const hitOracle = [...new Set(paths.filter(isOracle))]

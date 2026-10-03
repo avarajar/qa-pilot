@@ -9,7 +9,7 @@ const HEADLINE: Record<Decision['decision'], string> = {
 }
 
 const GATE_NAMES: Record<string, string> = {
-  G1: 'Ruta protegida', G3: 'Cambia el oráculo', G4: 'Journey crítico',
+  G1: 'Ruta protegida', G2: 'Zona sensible del repo', G3: 'Cambia el oráculo', G4: 'Journey crítico',
   G5: 'Tamaño', SEC: 'Seguridad', AI: 'Revisor IA', ERR: 'Error de qa-pilot',
 }
 

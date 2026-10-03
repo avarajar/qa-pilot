@@ -103,6 +103,27 @@ describe('route', () => {
   })
 })
 
+describe('G2 · zonas sensibles del repo', () => {
+  const g2 = (prefix: string, paths: string[]) =>
+    decide({ files: [], repo: { prefix, paths } }, [pass('e2e')]).gates.find(g => g.id === 'G2')
+
+  it('la config de CI escala, esté el proyecto en la raíz o en una subcarpeta', () => {
+    expect(g2('', ['.github/workflows/qa.yml'])).toEqual({ id: 'G2', reason: '.github/workflows/qa.yml' })
+    expect(g2('examples/notes/', ['.github/workflows/qa.yml'])).toBeDefined()
+    expect(g2('apps/web/', ['.gitlab-ci.yml', '.circleci/config.yml'])?.reason).toBe('.gitlab-ci.yml, .circleci/config.yml')
+  })
+  it('con el proyecto en una subcarpeta, los archivos de la raíz del repo escalan', () => {
+    expect(g2('examples/notes/', ['pnpm-lock.yaml', 'package.json'])?.reason).toBe('pnpm-lock.yaml, package.json')
+  })
+  it('con el proyecto en la raíz, sus archivos de raíz no escalan por G2 (para eso está protected-paths)', () => {
+    expect(g2('', ['README.md', 'package.json'])).toBeUndefined()
+  })
+  it('otra app del monorepo no escala: tiene su propio qa-pilot', () => {
+    const d = decide({ files: [], repo: { prefix: 'apps/web/', paths: ['apps/otra/src/x.ts', 'packages/ui/button.tsx'] } }, [pass('e2e')])
+    expect(d.decision).toBe('auto')
+  })
+})
+
 describe('protected-paths al estilo gitignore', () => {
   const withPaths = (protectedPaths: string[]) => ({ ...contract, protectedPaths })
   const g1 = (paths: string[], file: string) =>

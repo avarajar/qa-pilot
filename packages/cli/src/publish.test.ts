@@ -9,7 +9,7 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     labels: new Set(labels),
     comments: new Map<string, string>(),
     statuses: [] as Array<{ sha: string; state: string; description: string }>,
-    autoMerge: 0,
+    autoMerge: [] as Array<{ number: number; nodeId: string; sha: string }>,
   }
   const gh: GitHub = {
     async getPr(n) { return { number: n, headSha, labels: [...state.labels], nodeId: 'PR_node' } },
@@ -17,7 +17,7 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     async upsertComment(_n, marker, body) { state.comments.set(marker, body) },
     async findComment(_n, marker) { return state.comments.get(marker) ?? null },
     async setStatus(sha, s, description) { state.statuses.push({ sha, state: s, description }) },
-    async enableAutoMerge() { state.autoMerge++ },
+    async enableAutoMerge(pr) { state.autoMerge.push(pr) },
   }
   return { gh, state }
 }
@@ -63,14 +63,14 @@ describe('publish', () => {
     await publish(gh, 7, decision({ decision: 'auto', gates: [] }))
     expect([...state.labels]).toEqual([LABELS.auto])
     expect(state.statuses.at(-1)).toMatchObject({ sha: 'sha1', state: 'success' })
-    expect(state.autoMerge).toBe(1)
+    expect(state.autoMerge).toEqual([{ number: 7, nodeId: 'PR_node', sha: 'sha1' }])
   })
   it('escalate → qa:needs-human y status pending, sin auto-merge', async () => {
     const { gh, state } = fakeGitHub()
     await publish(gh, 7, decision())
     expect([...state.labels]).toEqual([LABELS.needsHuman])
     expect(state.statuses.at(-1)).toMatchObject({ state: 'pending' })
-    expect(state.autoMerge).toBe(0)
+    expect(state.autoMerge).toEqual([])
     expect(extractDecision(state.comments.get(MARKER)!)?.decision).toBe('escalate')
   })
   it('blocked → qa:blocked y status failure', async () => {
@@ -105,7 +105,7 @@ describe('approveCheck', () => {
     const r = await approveCheck(gh, 7, { action: 'labeled', actor: 'avarajar', label: LABELS.approved }, ['avarajar'])
     expect(r.approved).toBe(true)
     expect(state.statuses.at(-1)).toMatchObject({ sha: 'sha1', state: 'success' })
-    expect(state.autoMerge).toBe(1)
+    expect(state.autoMerge).toEqual([{ number: 7, nodeId: 'PR_node', sha: 'sha1' }])
   })
   it('comentario /qa approve también aprueba', async () => {
     const { gh } = await setup()

@@ -4,7 +4,8 @@ export interface GitHub {
   upsertComment(n: number, marker: string, body: string): Promise<void>
   findComment(n: number, marker: string): Promise<string | null>
   setStatus(sha: string, state: 'success' | 'pending' | 'failure', description: string): Promise<void>
-  enableAutoMerge(nodeId: string): Promise<void>
+  // sha: el commit que se evaluó; si el PR ya se puede mergear, se mergea solo si el head sigue ahí
+  enableAutoMerge(pr: { number: number; nodeId: string; sha: string }): Promise<void>
 }
 
 export const STATUS_CONTEXT = 'qa-pilot/decision'
@@ -59,11 +60,23 @@ export function restGitHub(opts: { repo: string; token: string; api?: string; fe
     async setStatus(sha, state, description) {
       await call('POST', `${repo}/statuses/${sha}`, { state, context: STATUS_CONTEXT, description: description.slice(0, 140) })
     },
-    async enableAutoMerge(nodeId) {
+    async enableAutoMerge(pr) {
       const query = 'mutation($id: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId } }'
-      const res = await call<{ errors?: Array<{ message: string }> }>('POST', '/graphql', { query, variables: { id: nodeId } })
+      const res = await call<{ errors?: Array<{ message: string }> }>('POST', '/graphql', { query, variables: { id: pr.nodeId } })
+      if (!res.errors?.length) return
+      const why = res.errors.map(e => e.message).join('; ')
+      // GitHub solo activa auto-merge si al PR le falta algo; si ya se puede mergear (el status que
+      // acabamos de poner era lo último), responde "clean/unstable status" y hay que mergear directo
+      if (/\b(clean|unstable) status\b/.test(why)) {
+        try {
+          await call('PUT', `${repo}/pulls/${pr.number}/merge`, { merge_method: 'squash', sha: pr.sha })
+        } catch (e) {
+          console.error(`qa-pilot: no se pudo mergear: ${(e as Error).message}`)
+        }
+        return
+      }
       // si el repo no tiene auto-merge habilitado, GitHub responde con errors; no es fatal para la decisión
-      if (res.errors?.length) console.error(`qa-pilot: no se pudo activar auto-merge: ${res.errors.map(e => e.message).join('; ')}`)
+      console.error(`qa-pilot: no se pudo activar auto-merge: ${why}`)
     },
   }
 }
