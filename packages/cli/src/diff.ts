@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process'
 
 export type DiffFile = { path: string; from?: string; status: 'A' | 'M' | 'D' | 'R'; added: number; removed: number }
-export type Diff = { files: DiffFile[] }
+// files: relativas al proyecto (root). repo: todo lo que cambió en el repo, con rutas del repo,
+// porque --relative esconde lo de fuera del proyecto y ahí están el CI y los lockfiles (G2)
+export type Diff = { files: DiffFile[]; repo?: { prefix: string; paths: string[] } }
 
 // numstat escribe los renombres como "a => b" o "dir/{a => b}/x"
 function renamedTarget(path: string): string {
@@ -36,7 +38,10 @@ export function gitDiff(root: string, base: string, head = 'HEAD'): Diff {
   // quotePath=false: sin esto git escribe "a\303\261o.sql" y los globs no coinciden con nombres con acentos
   const git = (...args: string[]) => execFileSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   const range = `${base}...${head}`
-  return parseDiff(git('diff', '--relative', '--name-status', '-M', range), git('diff', '--relative', '--numstat', '-M', range))
+  const diff = parseDiff(git('diff', '--relative', '--name-status', '-M', range), git('diff', '--relative', '--numstat', '-M', range))
+  // --no-renames: un renombre sale como borrado + alta, así cuentan las dos rutas
+  const paths = git('diff', '--name-only', '--no-renames', range, '--', ':(top)').split('\n').filter(Boolean)
+  return { ...diff, repo: { prefix: git('rev-parse', '--show-prefix').trim(), paths } }
 }
 
 export function headSha(root: string, ref = 'HEAD'): string {

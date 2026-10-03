@@ -40,7 +40,7 @@ export type Finding = {
 
 export type CheckResult = { check: string; status: 'pass' | 'fail' | 'warn'; findings: Finding[] }
 
-export type Gate = { id: 'G1' | 'G3' | 'G4' | 'G5' | 'SEC' | 'AI' | 'ERR'; reason: string }
+export type Gate = { id: 'G1' | 'G2' | 'G3' | 'G4' | 'G5' | 'SEC' | 'AI' | 'ERR'; reason: string }
 
 export type Decision = {
   version: 1
