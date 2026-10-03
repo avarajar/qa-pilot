@@ -30,7 +30,7 @@ export async function publish(gh: GitHub, pr: number, d: Decision): Promise<void
   if (d.decision === 'auto') await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: d.sha })
 }
 
-export type ApprovalEvent = { action: 'labeled' | 'created'; actor: string; label?: string; comment?: string }
+export type ApprovalEvent = { action: 'labeled' | 'created'; actor: string; label?: string; comment?: string; commentId?: number }
 
 export async function approveCheck(
   gh: GitHub,
@@ -40,6 +40,28 @@ export async function approveCheck(
 ): Promise<{ approved: boolean; reason: string }> {
   const asks = (ev.action === 'labeled' && ev.label === LABELS.approved) || (ev.action === 'created' && /^\/qa approve\b/.test(ev.comment?.trim() ?? ''))
   if (!asks) return { approved: false, reason: 'el evento no es una aprobación de qa-pilot' }
+  const r = await validateApproval(gh, pr, ev, approvers)
+  // el status y el merge no se ven en la conversación del PR: quien aprobó tiene que ver que pasó algo
+  if (r.approved) {
+    const current = await gh.getPr(pr)
+    const remove = [LABELS.needsHuman].filter(l => current.labels.includes(l))
+    await gh.setLabels(pr, current.labels.includes(LABELS.approved) ? [] : [LABELS.approved], remove)
+    await gh.upsertComment(pr, MARKER, renderComment(r.decision, { approvedBy: ev.actor }))
+    if (ev.commentId) await gh.react(ev.commentId, '+1')
+    await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: r.decision.sha })
+    return { approved: true, reason: r.reason }
+  }
+  await gh.comment(pr, `qa-pilot: la aprobación de @${ev.actor} no se aplicó: ${r.reason}.`)
+  if (ev.commentId) await gh.react(ev.commentId, '-1')
+  return { approved: false, reason: r.reason }
+}
+
+async function validateApproval(
+  gh: GitHub,
+  pr: number,
+  ev: ApprovalEvent,
+  approvers: string[],
+): Promise<{ approved: true; reason: string; decision: Decision } | { approved: false; reason: string }> {
   if (!approvers.some(a => a.toLowerCase() === ev.actor.toLowerCase())) return { approved: false, reason: `${ev.actor} no está en approvers de qa/qa-pilot.yaml` }
 
   const body = await gh.findComment(pr, MARKER)
@@ -52,6 +74,5 @@ export async function approveCheck(
     return { approved: false, reason: `la decisión es del commit ${d.sha.slice(0, 7)} pero el PR va en ${current.headSha.slice(0, 7)}; espera la corrida nueva` }
   }
   await gh.setStatus(d.sha, 'success', `Aprobado por ${ev.actor}`)
-  await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: d.sha })
-  return { approved: true, reason: `aprobado por ${ev.actor}` }
+  return { approved: true, reason: `aprobado por ${ev.actor}`, decision: d }
 }

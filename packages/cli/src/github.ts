@@ -6,6 +6,8 @@ export interface GitHub {
   setStatus(sha: string, state: 'success' | 'pending' | 'failure', description: string): Promise<void>
   // sha: el commit que se evaluó; si el PR ya se puede mergear, se mergea solo si el head sigue ahí
   enableAutoMerge(pr: { number: number; nodeId: string; sha: string }): Promise<void>
+  react(commentId: number, content: '+1' | '-1'): Promise<void>
+  comment(n: number, body: string): Promise<void>
 }
 
 export const STATUS_CONTEXT = 'qa-pilot/decision'
@@ -59,6 +61,12 @@ export function restGitHub(opts: { repo: string; token: string; api?: string; fe
     },
     async setStatus(sha, state, description) {
       await call('POST', `${repo}/statuses/${sha}`, { state, context: STATUS_CONTEXT, description: description.slice(0, 140) })
+    },
+    async react(commentId, content) {
+      await call('POST', `${repo}/issues/comments/${commentId}/reactions`, { content })
+    },
+    async comment(n, body) {
+      await call('POST', `${repo}/issues/${n}/comments`, { body })
     },
     async enableAutoMerge(pr) {
       const query = 'mutation($id: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId } }'

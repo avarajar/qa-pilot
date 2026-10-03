@@ -6,7 +6,7 @@ type Event = {
   pull_request?: { number?: number }
   issue?: { number?: number; pull_request?: unknown }
   label?: { name?: string }
-  comment?: { body?: string; user?: { login?: string } }
+  comment?: { id?: number; body?: string; user?: { login?: string } }
   sender?: { login?: string }
 }
 
@@ -23,7 +23,7 @@ export function approvalFromEvent(raw: unknown): ApprovalEvent | null {
     return { action: 'labeled', actor: ev.sender.login, label: ev.label.name }
   }
   if (ev.action === 'created' && ev.comment?.body !== undefined && ev.comment.user?.login) {
-    return { action: 'created', actor: ev.comment.user.login, comment: ev.comment.body }
+    return { action: 'created', actor: ev.comment.user.login, comment: ev.comment.body, ...(ev.comment.id ? { commentId: ev.comment.id } : {}) }
   }
   return null
 }

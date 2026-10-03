@@ -19,8 +19,9 @@ const ICON = { pass: '✅', warn: '⚠️', fail: '❌' } as const
 // podría escribir su propio "<!-- qa-pilot:decision ... -->" dentro del comentario
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-export function renderComment(d: Decision): string {
-  const lines = [`### qa-pilot`, '', HEADLINE[d.decision]]
+export function renderComment(d: Decision, opts: { approvedBy?: string } = {}): string {
+  const approved = d.decision === 'escalate' && opts.approvedBy
+  const lines = [`### qa-pilot`, '', approved ? `✅ **Aprobado por @${esc(opts.approvedBy!)}.**` : HEADLINE[d.decision]]
   if (d.gates.length) {
     lines.push('', '**Por qué escala**', '')
     for (const g of d.gates) lines.push(`- **${g.id} · ${GATE_NAMES[g.id] ?? esc(g.id)}:** ${esc(g.reason)}`)
@@ -37,8 +38,8 @@ export function renderComment(d: Decision): string {
     }
     lines.push('', '</details>')
   }
-  if (d.decision === 'escalate') lines.push('', 'Para aprobar: etiqueta `qa:approved` o comenta `/qa approve` (solo aprobadores de `qa/qa-pilot.yaml`).')
-  lines.push('', `<sub>${d.diff.files} archivos · +${d.diff.added} −${d.diff.removed} · ${d.sha.slice(0, 7)}</sub>`)
+  if (d.decision === 'escalate' && !approved) lines.push('', 'Para aprobar: etiqueta `qa:approved` o comenta `/qa approve` (solo aprobadores de `qa/qa-pilot.yaml`).')
+  lines.push('', `<sub>${d.diff.files} ${d.diff.files === 1 ? 'archivo' : 'archivos'} · +${d.diff.added} −${d.diff.removed} · ${d.sha.slice(0, 7)}</sub>`)
   if (d.omittedFindings) lines.push('', `<sub>${d.omittedFindings} hallazgos más en el artifact qa-results</sub>`)
   // dentro del JSON se escapan "<", ">" y "--": no puede abrir ni cerrar comentarios HTML
   const json = JSON.stringify(d).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/--/g, '\\u002d\\u002d')
