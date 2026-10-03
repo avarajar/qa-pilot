@@ -76,7 +76,6 @@ app.get('/notes', (req, res) => {
 app.post('/notes/:id/delete', (req, res) => {
   const user = currentUser(req)
   if (!user) return res.redirect('/login')
-  if (!canDelete(user)) return res.status(403).send(page('Sin permiso', '<h1>Sin permiso</h1><p>Solo un admin puede borrar notas.</p>'))
   notes = notes.filter(n => String(n.id) !== req.params.id)
   res.redirect('/notes')
 })
