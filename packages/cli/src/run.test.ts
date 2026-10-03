@@ -142,6 +142,25 @@ describe('run', () => {
     expect(calls.some(c => c.cmd === 'npx playwright test --update-snapshots')).toBe(true)
   })
 
+  it('con QA_PILOT_E2E_DOCKER corre el e2e dentro de la imagen de Playwright de la versión instalada', async () => {
+    const root = repo(yaml())
+    const { proc, calls } = fakeProc(cmd => (cmd === 'npx --no-install playwright --version' ? { code: 0, out: 'Version 1.63.0' } : { code: 0, out: '' }))
+    process.env.QA_PILOT_E2E_DOCKER = '1'
+    try {
+      await run({ root, base: 'main', proc, waitUrl: async () => true })
+    } finally {
+      delete process.env.QA_PILOT_E2E_DOCKER
+    }
+    const e2e = calls.find(c => c.cmd.startsWith('docker run'))!.cmd
+    expect(e2e).toContain('mcr.microsoft.com/playwright:v1.63.0-noble')
+    expect(e2e).toContain('-e QA_PILOT_OUT')
+    expect(e2e).toMatch(/npx playwright test'$/)
+    // el directorio de trabajo tiene que estar dentro de lo montado (en macOS /var es /private/var)
+    const mount = /-v '([^']+)':/.exec(e2e)![1]!
+    const cwd = /-w '([^']+)'/.exec(e2e)![1]!
+    expect(cwd.startsWith(mount)).toBe(true)
+  })
+
   it('docker-compose levanta y baja el entorno', async () => {
     const root = repo(yaml().replace('env: command', 'env: docker-compose\n  compose_file: compose.yml'))
     const { proc, calls } = fakeProc((cmd, env) => {

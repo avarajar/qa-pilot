@@ -8,6 +8,7 @@
 #   jobs:
 #     qa:
 #       uses: avarajar/qa-pilot/.github/workflows/qa.yml@<sha o tag>
+#       # with: { root: apps/web }   # si qa/ no está en la raíz del repo
 #
 # Branch protection debe exigir el status "qa-pilot/decision".
 #
@@ -30,6 +31,10 @@ on:
       node-version:
         type: string
         default: '22'
+      root:
+        description: Carpeta del proyecto (donde está qa/), relativa a la raíz del repo
+        type: string
+        default: '.'
 
 jobs:
   checks:
@@ -38,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions: { contents: read }
+    env: { ROOT: '${{ inputs.root }}' }
     concurrency:
       group: qa-pilot-checks-${{ github.event.pull_request.number }}
       cancel-in-progress: true
@@ -64,14 +70,14 @@ jobs:
           echo "QA_PILOT_PRESET=$(ls "$RUNNER_TEMP"/qa-pilot-pkgs/*.tgz | tr '\n' ' ')" >> "$GITHUB_ENV"
       - name: Herramientas de seguridad
         run: |
-          security="$(qa-pilot config get checks.security 2>/dev/null || echo '[]')"
+          security="$(qa-pilot config get checks.security --root "$ROOT" 2>/dev/null || echo '[]')"
           if [[ "$security" == *semgrep* ]]; then pipx install semgrep; fi
           if [[ "$security" == *gitleaks* ]]; then
             curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
           fi
       - name: qa-pilot run
         env: { BASE_SHA: '${{ github.event.pull_request.base.sha }}' }
-        run: qa-pilot run --base "$BASE_SHA"
+        run: qa-pilot run --root "$ROOT" --base "$BASE_SHA"
       # sin raw/ (salidas crudas, p. ej. de gitleaks) ni .auth/ (sesiones de prueba)
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -79,8 +85,8 @@ jobs:
           name: qa-results
           retention-days: 14
           path: |
-            qa-results/*.json
-            qa-results/artifacts/
+            ${{ inputs.root }}/qa-results/*.json
+            ${{ inputs.root }}/qa-results/artifacts/
 
   publish:
     needs: checks
@@ -88,6 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions: { contents: write, pull-requests: write, issues: write, statuses: write }
+    env: { ROOT: '${{ inputs.root }}' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: '${{ github.event.pull_request.base.sha }}', fetch-depth: 0 }
@@ -105,17 +112,17 @@ jobs:
           npm link ./.qa-pilot/packages/cli
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
-        with: { name: qa-results, path: qa-results }
+        with: { name: qa-results, path: '${{ inputs.root }}/qa-results' }
       - name: Decidir con la configuración de la rama base
         env:
           BASE_SHA: '${{ github.event.pull_request.base.sha }}'
           HEAD_SHA: '${{ github.event.pull_request.head.sha }}'
         run: |
-          rm -f qa-results/decision.json
-          qa-pilot route --base "$BASE_SHA" --head "$HEAD_SHA"
+          rm -f "$ROOT/qa-results/decision.json"
+          qa-pilot route --root "$ROOT" --base "$BASE_SHA" --head "$HEAD_SHA"
       - name: Publicar decisión
         env: { GITHUB_TOKEN: '${{ github.token }}' }
-        run: qa-pilot publish
+        run: qa-pilot publish --out "$ROOT/qa-results"
 
   approval:
     # liviano: no corre tests, solo valida quién aprobó y libera el status
@@ -125,6 +132,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions: { contents: write, pull-requests: write, statuses: write }
+    env: { ROOT: '${{ inputs.root }}' }
     steps:
       # los aprobadores salen de la rama base: un PR no puede agregarse a sí mismo
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -142,4 +150,4 @@ jobs:
           npm link ./.qa-pilot/packages/cli
       - name: Validar aprobación
         env: { GITHUB_TOKEN: '${{ github.token }}' }
-        run: qa-pilot approve-check
+        run: qa-pilot approve-check --root "$ROOT"

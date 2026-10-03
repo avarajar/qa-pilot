@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { ConfigError, loadContract } from './config.js'
 import { decide } from './cli.js'
@@ -6,6 +7,7 @@ import { gitDiff, headSha } from './diff.js'
 import { envAdapter } from './env-adapters.js'
 import { ingest } from './ingest.js'
 import { realProc, shellQuote, waitForUrl, type Proc } from './proc.js'
+import { dockerize, playwrightVersion } from './baselines.js'
 import type { CheckResult, Decision, QaConfig } from './types.js'
 
 export type RunOptions = {
@@ -15,6 +17,15 @@ export type RunOptions = {
   proc?: Proc
   waitUrl?: (url: string, timeoutS: number) => Promise<boolean>
   log?: (s: string) => void
+}
+
+// en un monorepo se monta el repo entero: pnpm enlaza dependencias fuera de la carpeta del proyecto
+function gitTop(root: string): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8' }).trim()
+  } catch {
+    return root
+  }
 }
 
 const fail = (check: string, message: string): CheckResult => ({ check, status: 'fail', findings: [{ kind: 'error', message }] })
@@ -99,7 +110,20 @@ export async function run(opts: RunOptions): Promise<Decision> {
     if (e2e) {
       // el reporter de @qa-pilot/playwright escribe e2e.json; si no lo hizo, el comando no llegó a correr bien
       const extra = process.env.QA_PILOT_E2E_ARGS?.trim()
-      await runCheck('e2e', extra ? `${e2e} ${extra}` : e2e, (code, output) => {
+      let cmd = extra ? `${e2e} ${extra}` : e2e
+      if (process.env.QA_PILOT_E2E_DOCKER) {
+        const v = playwrightVersion((await proc.sh('npx --no-install playwright --version', { cwd: appDir, env, timeoutS: 120, quiet: true })).out)
+        if (!v) {
+          write(fail('e2e', `QA_PILOT_E2E_DOCKER necesita @playwright/test instalado en ${appDir}`))
+          return
+        }
+        cmd = dockerize(`corepack enable >/dev/null 2>&1 || true; ${cmd}`, {
+          mount: realpathSync(gitTop(root)), cwd: realpathSync(appDir), version: v,
+          env: ['QA_PILOT_ROOT', 'QA_PILOT_OUT', 'QA_PILOT_URL', ...Object.keys(config.app.vars ?? {}), ...Object.keys(config.app.env_map ?? {}),
+            ...Object.values(config.roles).flatMap(r => (r.password_env ? [r.password_env] : []))],
+        })
+      }
+      await runCheck('e2e', cmd, (code, output) => {
         const file = join(out, 'e2e.json')
         if (!existsSync(file)) return code === 0 ? null : fail('e2e', output.slice(-800))
         // si el comando falló pero el resultado dice pass, gana el código de salida

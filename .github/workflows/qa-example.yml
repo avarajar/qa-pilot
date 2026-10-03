@@ -1,0 +1,14 @@
+# qa-pilot probándose a sí mismo: el workflow reutilizable sobre examples/notes.
+# Este repo es público, así que Actions no consume minutos pagados.
+name: qa
+on:
+  pull_request: { types: [opened, synchronize, reopened, labeled] }
+  issue_comment: { types: [created] }
+permissions: { contents: write, pull-requests: write, issues: write, statuses: write }
+jobs:
+  qa:
+    uses: ./.github/workflows/qa.yml
+    with:
+      root: examples/notes
+      # el qa-pilot que decide es el de la rama base, nunca el del PR
+      qa-pilot-ref: ${{ github.event.pull_request.base.sha || github.sha }}
