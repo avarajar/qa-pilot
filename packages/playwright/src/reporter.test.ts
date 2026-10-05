@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PNG } from 'pngjs'
 import QaReporter, { classify } from './reporter.js'
 
 type Fake = Parameters<typeof classify>[0]
@@ -64,6 +65,60 @@ describe('QaReporter', () => {
     r2.onTestEnd(tc('crea', 'unexpected'), res('failed', ['Error: boom']))
     r2.onEnd()
     expect(JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).status).toBe('fail')
+  })
+  it('copia lo esperado, lo recibido y el diff de cada captura que cambió', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))
+    const att = (name: string) => { const path = join(out, `src-${name}`); writeFileSync(path, name); return { name, path } }
+    const r = new QaReporter({ outputDir: out })
+    r.onTestEnd(tc('notas', 'unexpected', ['@J2']), res('failed', ['toHaveScreenshot: pixels differ', 'toHaveScreenshot: pixels differ'], [
+      att('notas-light-expected.png'), att('notas-light-actual.png'), att('notas-light-diff.png'),
+      att('notas-dark-expected.png'), att('notas-dark-actual.png'), att('notas-dark-diff.png'),
+      { name: 'trace', path: join(out, 'no-existe.zip') },
+    ]))
+    r.onEnd()
+    const [f] = JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).findings
+    expect(f.artifact).toBe('artifacts/owner-mobile-notas-light-diff.png')
+    expect(f.images).toEqual([
+      { name: 'owner-mobile · notas-light', expected: 'artifacts/owner-mobile-notas-light-expected.png', actual: 'artifacts/owner-mobile-notas-light-actual.png', diff: 'artifacts/owner-mobile-notas-light-diff.png' },
+      { name: 'owner-mobile · notas-dark', expected: 'artifacts/owner-mobile-notas-dark-expected.png', actual: 'artifacts/owner-mobile-notas-dark-actual.png', diff: 'artifacts/owner-mobile-notas-dark-diff.png' },
+    ])
+    expect(readFileSync(join(out, 'artifacts/owner-mobile-notas-dark-actual.png'), 'utf8')).toBe('notas-dark-actual.png')
+  })
+  it('con PNG reales dice cuánto y dónde cambió, y marca la zona en lo recibido', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))
+    const img = (name: string, red = false) => {
+      const p = new PNG({ width: 100, height: 50 })
+      for (let i = 0; i < 5000; i++) p.data.set([240, 240, 240, 255], i * 4)
+      if (red) for (let y = 5; y < 9; y++) for (let x = 80; x < 90; x++) p.data.set([255, 0, 0, 255], (y * 100 + x) * 4)
+      const path = join(out, `src-${name}`)
+      writeFileSync(path, PNG.sync.write(p))
+      return { name, path }
+    }
+    const r = new QaReporter({ outputDir: out })
+    r.onTestEnd(tc('notas', 'unexpected'), res('failed', ['toHaveScreenshot: pixels differ'], [
+      img('notas-light-expected.png'), img('notas-light-actual.png'), img('notas-light-diff.png', true),
+      { name: 'notas-light-elements.json', body: Buffer.from(JSON.stringify([
+        { kind: 'button', label: 'Borrar', box: { x: 80, y: 4, w: 12, h: 6 } },
+        { kind: 'h1', label: 'Notas', box: { x: 2, y: 2, w: 20, h: 8 } },
+      ])) } as never,
+    ]))
+    r.onEnd()
+    const [snap] = JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).findings[0].images
+    expect(snap.change).toEqual({ pixels: 40, percent: 0.8, zone: 'arriba a la derecha' })
+    expect(snap.elements).toEqual(['botón «Borrar»'])
+    expect(snap.marked).toBe('artifacts/owner-mobile-notas-light-marked.png')
+    expect(PNG.sync.read(readFileSync(join(out, snap.marked))).width).toBe(100)
+  })
+  it('captura nueva sin imagen base: solo lo recibido', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))
+    const path = join(out, 'src.png')
+    writeFileSync(path, 'png')
+    const r = new QaReporter({ outputDir: out })
+    r.onTestEnd(tc('nueva', 'unexpected'), res('failed', ['toHaveScreenshot: snapshot doesn\'t exist'], [{ name: 'nueva-light-actual.png', path }]))
+    r.onEnd()
+    const [f] = JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).findings
+    expect(f.artifact).toBeUndefined()
+    expect(f.images).toEqual([{ name: 'owner-mobile · nueva-light', actual: 'artifacts/owner-mobile-nueva-light-actual.png' }])
   })
   it('si Playwright termina en failed sin hallazgos (p. ej. "No tests found") → fail con error', () => {
     const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))

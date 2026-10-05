@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { loadContract, ConfigError } from './config.js'
@@ -7,16 +7,17 @@ import { ingest, type IngestTool } from './ingest.js'
 import { readResults, route } from './router.js'
 import type { Decision, QaConfig } from './types.js'
 import { restGitHub } from './github.js'
-import { publish, approveCheck } from './publish.js'
+import { publish, approveCheck, MAX_IMAGE_BYTES } from './publish.js'
 import { prFromEvent, approvalFromEvent } from './events.js'
+import { claudeDescriber } from './describe.js'
 
 function githubContext(io: Io): { gh: ReturnType<typeof restGitHub>; event: unknown } | null {
-  const { GITHUB_TOKEN: token, GITHUB_REPOSITORY: repo, GITHUB_EVENT_PATH: eventPath, GITHUB_API_URL: api } = process.env
+  const { GITHUB_TOKEN: token, GITHUB_REPOSITORY: repo, GITHUB_EVENT_PATH: eventPath, GITHUB_API_URL: api, GITHUB_SERVER_URL: web } = process.env
   if (!token || !repo || !eventPath) {
     io.err('Faltan GITHUB_TOKEN, GITHUB_REPOSITORY o GITHUB_EVENT_PATH: este comando corre dentro de GitHub Actions')
     return null
   }
-  return { gh: restGitHub({ repo, token, ...(api ? { api } : {}) }), event: JSON.parse(readFileSync(eventPath, 'utf8')) }
+  return { gh: restGitHub({ repo, token, ...(api ? { api } : {}), ...(web ? { web } : {}) }), event: JSON.parse(readFileSync(eventPath, 'utf8')) }
 }
 
 export type Io = { out(s: string): void; err(s: string): void }
@@ -127,9 +128,24 @@ commands.publish = async (args, io) => {
   const file = join(out, 'decision.json')
   if (!existsSync(file)) { io.err(`No existe ${file}: corre qa-pilot run o route antes`); return 1 }
   const d = JSON.parse(readFileSync(file, 'utf8')) as Decision
-  await publish(ctx.gh, pr, d)
+  // la descripción con IA es opcional: solo si el repo pasó la clave al job publish
+  const describe = process.env.ANTHROPIC_API_KEY
+    ? claudeDescriber({ ...(process.env.QA_PILOT_AI_MODEL ? { model: process.env.QA_PILOT_AI_MODEL } : {}) })
+    : undefined
+  await publish(ctx.gh, pr, d, { readImage: path => readImage(out, path), ...(describe ? { describe } : {}) })
   io.out(`PR #${pr}: ${d.decision}`)
   return 0
+}
+
+// solo archivos comunes y chicos: qa-results viene del job que corrió el código del PR
+function readImage(out: string, path: string): Buffer | null {
+  try {
+    const file = join(out, path)
+    const st = lstatSync(file)
+    return st.isFile() && st.size <= MAX_IMAGE_BYTES ? readFileSync(file) : null
+  } catch {
+    return null
+  }
 }
 
 commands['approve-check'] = async (args, io) => {

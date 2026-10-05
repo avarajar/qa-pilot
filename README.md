@@ -39,3 +39,13 @@ Ver `docs/specs/2026-10-02-qa-pilot-fase-1-design.md`.
 
 Las imágenes base de screenshots se generan en Linux: `qa-pilot baselines` (Docker)
 o en CI con `QA_PILOT_E2E_ARGS=--update-snapshots`. Commitearlas escala por G3.
+
+Cuando una captura cambia, el comentario del PR muestra el antes, el después (con la
+zona que cambió encerrada en rojo) y la diferencia, y dice qué elementos hay en esa zona,
+cuánto cambió y dónde. Si el workflow recibe el secreto opcional `anthropic-api-key`, el job
+`publish` además le pide a Claude una frase de qué cambió ("los botones «Borrar» pasaron
+de rojo a verde"), marcada como IA. Usa `claude-opus-5-5` (cámbialo con `QA_PILOT_AI_MODEL`)
+y describe hasta 5 capturas por corrida. La clave no llega al job que corre el código del PR. Las imágenes se guardan en la rama `qa-pilot/evidence` del repo: si una
+regla de branch protection la cubre, el comentario sale sin imágenes. La rama crece
+con cada corrida que cambia capturas; se puede borrar cuando estorbe (los comentarios
+viejos pierden sus imágenes).

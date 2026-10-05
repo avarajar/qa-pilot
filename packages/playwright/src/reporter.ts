@@ -1,6 +1,7 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
+import { describeDiff, elementsInZone, markChange, type PageElement } from './visual.js'
 
 type Finding = {
   kind: 'test-failed' | 'flaky' | 'visual-diff' | 'a11y' | 'error'
@@ -8,7 +9,18 @@ type Finding = {
   journey?: string
   file?: string
   artifact?: string
+  images?: Snapshot[]
 }
+
+// una captura que cambió: rutas relativas a qa-results, como las sube publish
+// marked: lo recibido con la zona que cambió encerrada; change: cuánto y dónde, para decirlo en texto
+type Snapshot = {
+  name: string; expected?: string; actual?: string; diff?: string; marked?: string
+  change?: { pixels: number; percent: number; zone: string }
+  elements?: string[]
+}
+
+const SNAPSHOT_PART = /^(.+)-(expected|actual|diff)\.png$/
 
 // los errores de expect vienen coloreados para la terminal
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
@@ -49,6 +61,18 @@ export function classify(test: TestCase, result: TestResult): Finding[] {
   return [{ kind: 'test-failed', message: `${label}: ${summarize(messages[0] ?? 'falló')}`, ...base }]
 }
 
+// lo que anotó qa.snap al fallar la captura: <nombre>-elements.json
+function pageElements(result: TestResult, stem: string): PageElement[] {
+  const a = result.attachments.find(x => x.name === `${stem}-elements.json`)
+  try {
+    const raw = a?.body ? a.body.toString('utf8') : a?.path ? readFileSync(a.path, 'utf8') : '[]'
+    const list = JSON.parse(raw) as PageElement[]
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
 export default class QaReporter implements Reporter {
   private findings: Finding[] = []
   private executed = 0
@@ -64,17 +88,43 @@ export default class QaReporter implements Reporter {
     if (test.outcome() === 'unexpected' && result.retry < test.retries && result.status !== 'passed') return
     for (const f of classify(test, result)) {
       if (f.kind === 'visual-diff') {
-        const diff = result.attachments.find(a => a.name.endsWith('-diff.png') && a.path && existsSync(a.path))
-        if (diff?.path) {
-          const project = test.parent.project()?.name ?? 'default'
-          const name = `${project}-${diff.name}`
-          mkdirSync(join(this.outputDir, 'artifacts'), { recursive: true })
-          copyFileSync(diff.path, join(this.outputDir, 'artifacts', name))
-          f.artifact = `artifacts/${name}`
-        }
+        const images = this.copySnapshots(test, result)
+        if (images.length) f.images = images
+        const diff = images.find(i => i.diff)?.diff
+        if (diff) f.artifact = diff
       }
       this.findings.push(f)
     }
+  }
+
+  // Playwright adjunta <nombre>-expected/-actual/-diff.png por cada toHaveScreenshot que falló
+  private copySnapshots(test: TestCase, result: TestResult): Snapshot[] {
+    const project = test.parent.project()?.name ?? 'default'
+    const byName = new Map<string, Snapshot>()
+    for (const a of result.attachments) {
+      const m = SNAPSHOT_PART.exec(a.name)
+      if (!m || !a.path || !existsSync(a.path)) continue
+      const [, stem, part] = m as unknown as [string, string, 'expected' | 'actual' | 'diff']
+      const file = `${project}-${a.name}`
+      mkdirSync(join(this.outputDir, 'artifacts'), { recursive: true })
+      copyFileSync(a.path, join(this.outputDir, 'artifacts', file))
+      const snap = byName.get(stem) ?? { name: `${project} · ${stem}` }
+      snap[part] = `artifacts/${file}`
+      byName.set(stem, snap)
+    }
+    for (const [stem, snap] of byName) {
+      if (!snap.diff) continue
+      const summary = describeDiff(join(this.outputDir, snap.diff))
+      if (!summary) continue
+      snap.change = { pixels: summary.pixels, percent: summary.percent, zone: summary.zone }
+      const elements = elementsInZone(pageElements(result, stem), summary.box)
+      if (elements.length) snap.elements = elements
+      const marked = `${project}-${stem}-marked.png`
+      if (snap.actual && markChange(join(this.outputDir, snap.actual), summary.box, join(this.outputDir, 'artifacts', marked))) {
+        snap.marked = `artifacts/${marked}`
+      }
+    }
+    return [...byName.values()]
   }
 
   onEnd(result?: FullResult): void {

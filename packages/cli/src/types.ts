@@ -36,6 +36,17 @@ export type Finding = {
   file?: string
   severity?: 'low' | 'medium' | 'high' | 'critical'
   artifact?: string
+  // capturas que cambiaron; rutas relativas a qa-results (artifacts/<archivo>.png)
+  images?: Snapshot[]
+}
+
+// marked: lo recibido con la zona que cambió encerrada; change: cuánto y dónde, para decirlo en texto
+export type Snapshot = {
+  name: string; expected?: string; actual?: string; diff?: string; marked?: string
+  change?: { pixels: number; percent: number; zone: string }
+  // elements: qué hay en la zona que cambió (del reporter); ai: la frase de Claude (de publish)
+  elements?: string[]
+  ai?: string
 }
 
 export type CheckResult = { check: string; status: 'pass' | 'fail' | 'warn'; findings: Finding[] }
@@ -51,4 +62,6 @@ export type Decision = {
   checks: Record<string, CheckResult['status']>
   findings: Array<Finding & { check: string }>
   omittedFindings?: number
+  // base de las URLs de las imágenes subidas por publish: <evidence><ruta de images>
+  evidence?: string
 }

@@ -12,6 +12,8 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     autoMerge: [] as Array<{ number: number; nodeId: string; sha: string }>,
     reactions: [] as Array<{ commentId: number; content: string }>,
     replies: [] as string[],
+    uploads: [] as Array<{ paths: string[]; message: string }>,
+    uploadFails: false,
   }
   const gh: GitHub = {
     async getPr(n) { return { number: n, headSha, labels: [...state.labels], nodeId: 'PR_node' } },
@@ -22,6 +24,11 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     async enableAutoMerge(pr) { state.autoMerge.push(pr) },
     async react(commentId, content) { state.reactions.push({ commentId, content }) },
     async comment(_n, body) { state.replies.push(body) },
+    async uploadEvidence(files, message) {
+      if (state.uploadFails) throw new Error('GitHub POST git/blobs: 403')
+      state.uploads.push({ paths: files.map(f => f.path), message })
+      return 'https://github.com/o/r/raw/c0ffee/'
+    },
   }
   return { gh, state }
 }
@@ -100,6 +107,111 @@ describe('publish', () => {
     const { gh, state } = fakeGitHub('sha2', [LABELS.needsHuman, LABELS.approved, 'bug'])
     await publish(gh, 7, decision({ sha: 'sha2' }))
     expect([...state.labels].sort()).toEqual(['bug', LABELS.needsHuman])
+  })
+})
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+
+describe('publish con capturas que cambiaron', () => {
+  const visual = (images: Decision['findings'][number]['images']) =>
+    decision({ sha: 'abcdef1234', findings: [{ check: 'e2e', kind: 'visual-diff', message: 'admin-desktop › notas: la captura cambió', journey: 'J2', images }] })
+  const snap = { name: 'admin-desktop · notas-light', expected: 'artifacts/a-expected.png', actual: 'artifacts/a-actual.png', diff: 'artifacts/a-diff.png', marked: 'artifacts/a-marked.png', change: { pixels: 40, percent: 0.8, zone: 'arriba' } }
+
+  it('sube las imágenes a la rama de evidencia y las muestra en el comentario', async () => {
+    const { gh, state } = fakeGitHub()
+    await publish(gh, 7, visual([snap]), { readImage: () => PNG })
+    expect(state.uploads).toEqual([{
+      paths: ['pr-7/abcdef1/artifacts/a-expected.png', 'pr-7/abcdef1/artifacts/a-actual.png', 'pr-7/abcdef1/artifacts/a-diff.png', 'pr-7/abcdef1/artifacts/a-marked.png'],
+      message: 'qa-pilot: evidencia del PR #7 (abcdef1)',
+    }])
+    const body = state.comments.get(MARKER)!
+    expect(body).toContain('**Cambios visuales**')
+    expect(body).toContain('<img src="https://github.com/o/r/raw/c0ffee/pr-7/abcdef1/artifacts/a-marked.png"')
+    // la decisión guardada sabe dónde están, para Forge y para el comentario de la aprobación
+    expect(extractDecision(body)!.evidence).toBe('https://github.com/o/r/raw/c0ffee/pr-7/abcdef1/')
+    expect(renderComment(extractDecision(body)!, { approvedBy: 'ana' })).toContain('a-diff.png')
+    expect(extractDecision(body)!.findings[0]!.images![0]!.change).toEqual({ pixels: 40, percent: 0.8, zone: 'arriba' })
+  })
+
+  it('no sube lo que no es un PNG de artifacts/: el PR controla esas rutas y archivos', async () => {
+    const { gh, state } = fakeGitHub()
+    const files: Record<string, Buffer> = { 'artifacts/ok-actual.png': PNG, 'artifacts/texto-actual.png': Buffer.from('<script>') }
+    await publish(gh, 7, visual([
+      { name: 'ok', actual: 'artifacts/ok-actual.png', diff: '../../.git/config' },
+      { name: 'malo', actual: 'artifacts/texto-actual.png', expected: 'artifacts/no-existe.png', diff: 'artifacts/x".png' },
+    ]), { readImage: p => files[p] ?? null })
+    expect(state.uploads[0]!.paths).toEqual(['pr-7/abcdef1/artifacts/ok-actual.png'])
+    const d = extractDecision(state.comments.get(MARKER)!)!
+    expect(d.findings[0]!.images).toEqual([{ name: 'ok', actual: 'artifacts/ok-actual.png' }])
+  })
+
+  it('si la subida falla, publica igual la decisión, sin imágenes', async () => {
+    const { gh, state } = fakeGitHub()
+    state.uploadFails = true
+    await publish(gh, 7, visual([snap]), { readImage: () => PNG })
+    expect(state.statuses).toHaveLength(1)
+    const body = state.comments.get(MARKER)!
+    expect(body).not.toContain('Cambios visuales')
+    expect(extractDecision(body)!.evidence).toBeUndefined()
+  })
+
+  it('con describe, cada captura con antes y después lleva la frase de la IA', async () => {
+    const { gh, state } = fakeGitHub()
+    const seen: Array<{ zone?: string; elements?: string[] }> = []
+    const describe = async (i: { zone?: string; elements?: string[] }) => { seen.push(i); return 'Los botones «Borrar» pasaron de rojo a verde.' }
+    await publish(gh, 7, visual([{ ...snap, elements: ['botón «Borrar» ×3', 42 as never] }, { name: 'sin antes', actual: 'artifacts/b-actual.png' }]), { readImage: () => PNG, describe })
+    expect(seen).toEqual([{ expected: PNG, actual: PNG, zone: 'arriba', elements: ['botón «Borrar» ×3'] }])
+    const images = extractDecision(state.comments.get(MARKER)!)!.findings[0]!.images!
+    expect(images[0]).toMatchObject({ ai: 'Los botones «Borrar» pasaron de rojo a verde.', elements: ['botón «Borrar» ×3'] })
+    expect(images[1]!.ai).toBeUndefined()
+  })
+
+  it('sin capturas que cambiaron no sube nada', async () => {
+    const { gh, state } = fakeGitHub()
+    await publish(gh, 7, decision(), { readImage: () => PNG })
+    expect(state.uploads).toEqual([])
+  })
+})
+
+describe('renderComment con capturas', () => {
+  const ev = 'https://github.com/o/r/raw/c/'
+  it('dice cuánto y dónde cambió, muestra la zona marcada y explica los colores', () => {
+    const body = renderComment(decision({ evidence: ev, findings: [{ check: 'e2e', kind: 'visual-diff', message: 'x', journey: 'J1', images: [{
+      name: 'admin-desktop · notas-light', expected: 'artifacts/e.png', actual: 'artifacts/a.png', diff: 'artifacts/d.png', marked: 'artifacts/m.png',
+      change: { pixels: 3708, percent: 0.4, zone: 'a la derecha, a media altura' },
+    }] }] }))
+    expect(body).toContain('admin-desktop · notas-light (J1)<br><sub>Cambió 0,4 % de la captura (3708 píxeles), a la derecha, a media altura.</sub>')
+    expect(body).toContain('<a href="https://github.com/o/r/raw/c/artifacts/a.png"><img src="https://github.com/o/r/raw/c/artifacts/m.png"')
+    expect(body).toContain('El recuadro rojo en **Después** marca la zona que cambió')
+  })
+  it('con elementos e IA: la frase arriba y debajo qué elementos, cuánto y dónde', () => {
+    const body = renderComment(decision({ evidence: ev, findings: [{ check: 'e2e', kind: 'visual-diff', message: 'x', journey: 'J1', images: [{
+      name: 'admin-desktop · notas-light', diff: 'artifacts/d.png', elements: ['botón «Borrar» ×3'],
+      change: { pixels: 672, percent: 0.1, zone: 'arriba a la derecha' }, ai: 'Los botones | «Borrar» <b>pasaron</b> a verde.',
+    }] }] }))
+    expect(body).toContain('admin-desktop · notas-light (J1)<br>**Los botones \\| «Borrar» &lt;b&gt;pasaron&lt;/b&gt; a verde.** _(IA)_<br><sub>Cambió: botón «Borrar» ×3 · 0,1 % de la captura (672 píxeles) · arriba a la derecha.</sub>')
+    expect(body).toContain('_(IA)_: descripción hecha por Claude')
+  })
+  it('un cambio de menos de 0,1 % no dice "0 %"', () => {
+    const body = renderComment(decision({ evidence: ev, findings: [{ check: 'e2e', kind: 'visual-diff', message: 'x', images: [{
+      name: 'n', diff: 'artifacts/d.png', change: { pixels: 12, percent: 0, zone: 'arriba al centro' },
+    }] }] }))
+    expect(body).toContain('Cambió menos de 0,1 % de la captura (12 píxeles), arriba al centro.')
+  })
+  it('el texto del cambio viene del PR: se escapa y se ignora si no tiene la forma esperada', () => {
+    const body = renderComment(decision({ evidence: ev, findings: [{ check: 'e2e', kind: 'visual-diff', message: 'x', images: [
+      { name: 'a', diff: 'artifacts/d.png', change: { pixels: 1, percent: 1, zone: '<img src=x onerror=alert(1)>' } },
+      { name: 'b', diff: 'artifacts/d.png', change: { pixels: 'mucho', percent: 1, zone: 'arriba' } as never },
+    ] }] })).split(MARKER)[0]!
+    expect(body).not.toContain('<img src=x')
+    expect(body).toContain('&lt;img src=x')
+    expect(body).not.toContain('mucho')
+  })
+
+  it('sin evidence no muestra imágenes, y una ruta rara no llega al HTML', () => {
+    const f = { check: 'e2e', kind: 'visual-diff' as const, message: 'x', images: [{ name: 'n', actual: 'artifacts/a" onerror="x.png' }] }
+    expect(renderComment(decision({ findings: [f] }))).not.toContain('<img')
+    expect(renderComment(decision({ evidence: 'https://github.com/o/r/raw/c/', findings: [f] }))).not.toContain('<img')
   })
 })
 

@@ -104,6 +104,8 @@ type Finding = {
   file?: string
   severity?: 'low' | 'medium' | 'high' | 'critical'
   artifact?: string                  // ruta relativa a un screenshot/diff
+  images?: Array<{ name: string; expected?: string; actual?: string; diff?: string; marked?: string
+    change?: { pixels: number; percent: number; zone: string }; elements?: string[]; ai?: string }>  // capturas que cambiaron
 }
 ```
 
@@ -158,6 +160,17 @@ añadir escalamientos, nunca quitarlos.
 
 - Etiqueta exactamente una de `qa:auto`, `qa:needs-human`, `qa:blocked`; quita
   `qa:approved` si el SHA cambió (aprobación vencida).
+- Si hay capturas que cambiaron, sube lo esperado, lo recibido y el diff a la
+  rama `qa-pilot/evidence` (un commit por corrida, en `pr-<n>/<sha>/`) y el
+  comentario las muestra en una tabla *Antes · Después · Diferencia*, con una
+  línea por captura que dice qué elementos cambiaron, cuánto y dónde, y una
+  leyenda de colores. Con el secreto opcional `anthropic-api-key`, publish pide a
+  Claude una frase de qué cambió entre Antes y Después (`ai`, hasta 5 capturas
+  por corrida), que el comentario marca como IA. La frase solo se muestra: no
+  cambia la decisión. Solo sube
+  PNG de hasta 2 MB dentro de `artifacts/` (máx. 30): las rutas y los archivos
+  salen del job que corrió el código del PR. Si la subida falla, la decisión se
+  publica igual, sin imágenes.
 - Comentario único, actualizado en cada corrida, con resumen legible y el JSON
   entre `<!-- qa-pilot:decision` y `-->`.
 - Status `qa-pilot/decision` sobre el SHA: `success` si `auto`, `pending` si
@@ -189,8 +202,13 @@ Branch protection requiere `qa-pilot/decision`.
   apagadas, en tema claro y oscuro vía `emulateMedia`), `qa.a11y(page)` (axe;
   falla con violaciones `serious`/`critical`), `qa.role` (rol del proyecto).
 - Reporter: mapea tags `@J<n>` a `journey`, distingue `flaky` (pasó al
-  reintentar) y `visual-diff` (fallo de `toHaveScreenshot`), copia los diffs a
-  `qa-results/artifacts/`.
+  reintentar) y `visual-diff` (fallo de `toHaveScreenshot`), copia lo esperado,
+  lo recibido y el diff de cada captura a `qa-results/artifacts/`. Del diff saca
+  cuántos píxeles cambiaron y en qué zona (`change`), y guarda una copia de lo
+  recibido con esa zona encerrada en rojo (`marked`). Cuando una captura de
+  `qa.snap` falla, el fixture anota los elementos visibles de la página y su
+  posición; el reporter nombra los que caen en la zona (`elements`, p. ej.
+  `botón «Borrar» ×3`).
 
 ## 9. Adaptadores
 
