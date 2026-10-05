@@ -1,4 +1,4 @@
-import type { Decision } from './types.js'
+import type { Decision, Snapshot } from './types.js'
 
 export const MARKER = '<!-- qa-pilot:decision'
 
@@ -53,23 +53,37 @@ export function renderComment(d: Decision, opts: { approvedBy?: string } = {}): 
   return lines.join('\n')
 }
 
+// el resumen del cambio también sale del PR: solo se acepta con la forma que escribe el reporter
+export function isChange(c: unknown): c is NonNullable<Snapshot['change']> {
+  const v = c as Snapshot['change']
+  return !!v && Number.isFinite(v.pixels) && Number.isFinite(v.percent) && typeof v.zone === 'string' && v.zone.length <= 60
+}
+
+function changeText(c: Snapshot['change']): string {
+  if (!isChange(c)) return ''
+  const pct = c.percent < 0.1 ? 'menos de 0,1 %' : `${String(c.percent).replace('.', ',')} %`
+  return `Cambió ${pct} de la captura (${c.pixels} ${c.pixels === 1 ? 'píxel' : 'píxeles'}), ${esc(c.zone)}.`
+}
+
 // antes, después y diferencia de cada captura que cambió, con las imágenes que subió publish
 function visualChanges(d: Decision): string[] {
   if (!d.evidence || !EVIDENCE_BASE.test(d.evidence)) return []
-  const cell = (path?: string) => {
-    if (!path || !EVIDENCE_PATH.test(path)) return '—'
-    const url = `${d.evidence}${path}`
-    return `<a href="${url}"><img src="${url}" width="220"></a>`
-  }
-  const rows = d.findings.flatMap(f => (f.images ?? []).map(img => ({ f, img })))
-    .filter(({ img }) => [img.expected, img.actual, img.diff].some(p => p && EVIDENCE_PATH.test(p)))
+  const ok = (path?: string): path is string => !!path && EVIDENCE_PATH.test(path)
+  const img = (src: string, href = src) => `<a href="${d.evidence}${href}"><img src="${d.evidence}${src}" width="220"></a>`
+  const rows = d.findings.flatMap(f => (f.images ?? []).map(snap => ({ f, snap })))
+    .filter(({ snap }) => [snap.expected, snap.actual, snap.diff, snap.marked].some(ok))
   if (!rows.length) return []
   const lines = ['', '**Cambios visuales**', '', '| Captura | Antes | Después | Diferencia |', '|---|---|---|---|']
-  for (const { f, img } of rows.slice(0, MAX_VISUAL_ROWS)) {
-    const name = esc(String(img.name)).replace(/\|/g, '\\|') + (f.journey ? ` (${esc(f.journey)})` : '')
-    lines.push(`| ${name} | ${cell(img.expected)} | ${cell(img.actual)} | ${cell(img.diff)} |`)
+  for (const { f, snap } of rows.slice(0, MAX_VISUAL_ROWS)) {
+    const text = changeText(snap.change)
+    const name = esc(String(snap.name)).replace(/\|/g, '\\|') + (f.journey ? ` (${esc(f.journey)})` : '') + (text ? `<br><sub>${text}</sub>` : '')
+    // en Después va la versión con la zona encerrada; el clic abre la captura limpia
+    const after = ok(snap.marked) ? img(snap.marked, ok(snap.actual) ? snap.actual : snap.marked) : ok(snap.actual) ? img(snap.actual) : '—'
+    lines.push(`| ${name} | ${ok(snap.expected) ? img(snap.expected) : '—'} | ${after} | ${ok(snap.diff) ? img(snap.diff) : '—'} |`)
   }
   if (rows.length > MAX_VISUAL_ROWS) lines.push('', `<sub>${rows.length - MAX_VISUAL_ROWS} capturas más en el artifact qa-results</sub>`)
+  const marked = rows.some(({ snap }) => ok(snap.marked))
+  lines.push('', `<sub>${marked ? 'El recuadro rojo en **Después** marca la zona que cambió. ' : ''}En **Diferencia**, lo rojo son los píxeles distintos y lo amarillo, bordes suavizados que no cuentan. Clic en una imagen para verla en grande.</sub>`)
   return lines
 }
 

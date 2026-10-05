@@ -104,7 +104,8 @@ type Finding = {
   file?: string
   severity?: 'low' | 'medium' | 'high' | 'critical'
   artifact?: string                  // ruta relativa a un screenshot/diff
-  images?: Array<{ name: string; expected?: string; actual?: string; diff?: string }>  // capturas que cambiaron
+  images?: Array<{ name: string; expected?: string; actual?: string; diff?: string; marked?: string
+    change?: { pixels: number; percent: number; zone: string } }>  // capturas que cambiaron
 }
 ```
 
@@ -161,7 +162,8 @@ añadir escalamientos, nunca quitarlos.
   `qa:approved` si el SHA cambió (aprobación vencida).
 - Si hay capturas que cambiaron, sube lo esperado, lo recibido y el diff a la
   rama `qa-pilot/evidence` (un commit por corrida, en `pr-<n>/<sha>/`) y el
-  comentario las muestra en una tabla *Antes · Después · Diferencia*. Solo sube
+  comentario las muestra en una tabla *Antes · Después · Diferencia*, con una
+  línea por captura que dice cuánto cambió y dónde, y una leyenda de colores. Solo sube
   PNG de hasta 2 MB dentro de `artifacts/` (máx. 30): las rutas y los archivos
   salen del job que corrió el código del PR. Si la subida falla, la decisión se
   publica igual, sin imágenes.
@@ -197,7 +199,9 @@ Branch protection requiere `qa-pilot/decision`.
   falla con violaciones `serious`/`critical`), `qa.role` (rol del proyecto).
 - Reporter: mapea tags `@J<n>` a `journey`, distingue `flaky` (pasó al
   reintentar) y `visual-diff` (fallo de `toHaveScreenshot`), copia lo esperado,
-  lo recibido y el diff de cada captura a `qa-results/artifacts/`.
+  lo recibido y el diff de cada captura a `qa-results/artifacts/`. Del diff saca
+  cuántos píxeles cambiaron y en qué zona (`change`), y guarda una copia de lo
+  recibido con esa zona encerrada en rojo (`marked`).
 
 ## 9. Adaptadores
 

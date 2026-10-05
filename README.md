@@ -40,8 +40,8 @@ Ver `docs/specs/2026-10-02-qa-pilot-fase-1-design.md`.
 Las imágenes base de screenshots se generan en Linux: `qa-pilot baselines` (Docker)
 o en CI con `QA_PILOT_E2E_ARGS=--update-snapshots`. Commitearlas escala por G3.
 
-Cuando una captura cambia, el comentario del PR muestra el antes, el después y la
-diferencia. Las imágenes se guardan en la rama `qa-pilot/evidence` del repo: si una
+Cuando una captura cambia, el comentario del PR muestra el antes, el después (con la
+zona que cambió encerrada en rojo) y la diferencia, y dice cuánto cambió y dónde. Las imágenes se guardan en la rama `qa-pilot/evidence` del repo: si una
 regla de branch protection la cubre, el comentario sale sin imágenes. La rama crece
 con cada corrida que cambia capturas; se puede borrar cuando estorbe (los comentarios
 viejos pierden sus imágenes).

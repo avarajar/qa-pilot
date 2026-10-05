@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PNG } from 'pngjs'
 import QaReporter, { classify } from './reporter.js'
 
 type Fake = Parameters<typeof classify>[0]
@@ -82,6 +83,26 @@ describe('QaReporter', () => {
       { name: 'owner-mobile · notas-dark', expected: 'artifacts/owner-mobile-notas-dark-expected.png', actual: 'artifacts/owner-mobile-notas-dark-actual.png', diff: 'artifacts/owner-mobile-notas-dark-diff.png' },
     ])
     expect(readFileSync(join(out, 'artifacts/owner-mobile-notas-dark-actual.png'), 'utf8')).toBe('notas-dark-actual.png')
+  })
+  it('con PNG reales dice cuánto y dónde cambió, y marca la zona en lo recibido', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))
+    const img = (name: string, red = false) => {
+      const p = new PNG({ width: 100, height: 50 })
+      for (let i = 0; i < 5000; i++) p.data.set([240, 240, 240, 255], i * 4)
+      if (red) for (let y = 5; y < 9; y++) for (let x = 80; x < 90; x++) p.data.set([255, 0, 0, 255], (y * 100 + x) * 4)
+      const path = join(out, `src-${name}`)
+      writeFileSync(path, PNG.sync.write(p))
+      return { name, path }
+    }
+    const r = new QaReporter({ outputDir: out })
+    r.onTestEnd(tc('notas', 'unexpected'), res('failed', ['toHaveScreenshot: pixels differ'], [
+      img('notas-light-expected.png'), img('notas-light-actual.png'), img('notas-light-diff.png', true),
+    ]))
+    r.onEnd()
+    const [snap] = JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).findings[0].images
+    expect(snap.change).toEqual({ pixels: 40, percent: 0.8, zone: 'arriba a la derecha' })
+    expect(snap.marked).toBe('artifacts/owner-mobile-notas-light-marked.png')
+    expect(PNG.sync.read(readFileSync(join(out, snap.marked))).width).toBe(100)
   })
   it('captura nueva sin imagen base: solo lo recibido', () => {
     const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))

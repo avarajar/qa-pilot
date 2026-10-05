@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
+import { describeDiff, markChange } from './visual.js'
 
 type Finding = {
   kind: 'test-failed' | 'flaky' | 'visual-diff' | 'a11y' | 'error'
@@ -12,7 +13,11 @@ type Finding = {
 }
 
 // una captura que cambió: rutas relativas a qa-results, como las sube publish
-type Snapshot = { name: string; expected?: string; actual?: string; diff?: string }
+// marked: lo recibido con la zona que cambió encerrada; change: cuánto y dónde, para decirlo en texto
+type Snapshot = {
+  name: string; expected?: string; actual?: string; diff?: string; marked?: string
+  change?: { pixels: number; percent: number; zone: string }
+}
 
 const SNAPSHOT_PART = /^(.+)-(expected|actual|diff)\.png$/
 
@@ -93,6 +98,16 @@ export default class QaReporter implements Reporter {
       const snap = byName.get(stem) ?? { name: `${project} · ${stem}` }
       snap[part] = `artifacts/${file}`
       byName.set(stem, snap)
+    }
+    for (const [stem, snap] of byName) {
+      if (!snap.diff) continue
+      const summary = describeDiff(join(this.outputDir, snap.diff))
+      if (!summary) continue
+      snap.change = { pixels: summary.pixels, percent: summary.percent, zone: summary.zone }
+      const marked = `${project}-${stem}-marked.png`
+      if (snap.actual && markChange(join(this.outputDir, snap.actual), summary.box, join(this.outputDir, 'artifacts', marked))) {
+        snap.marked = `artifacts/${marked}`
+      }
     }
     return [...byName.values()]
   }

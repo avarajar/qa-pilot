@@ -1,4 +1,4 @@
-import { EVIDENCE_PATH, MARKER, extractDecision, renderComment } from './comment.js'
+import { EVIDENCE_PATH, MARKER, extractDecision, isChange, renderComment } from './comment.js'
 import type { GitHub } from './github.js'
 import type { Decision, Snapshot } from './types.js'
 
@@ -53,9 +53,10 @@ async function attachEvidence(gh: GitHub, pr: number, d: Decision, readImage: (p
   const findings = d.findings.map(({ images, ...f }) => {
     const kept = (images ?? []).map(img => {
       const s: Snapshot = { name: String(img.name) }
-      for (const part of ['expected', 'actual', 'diff'] as const) if (keep(img[part])) s[part] = img[part]
+      for (const part of ['expected', 'actual', 'diff', 'marked'] as const) if (keep(img[part])) s[part] = img[part]
+      if (isChange(img.change)) s.change = { pixels: img.change.pixels, percent: img.change.percent, zone: img.change.zone }
       return s
-    }).filter(s => s.expected || s.actual || s.diff)
+    }).filter(s => s.expected || s.actual || s.diff || s.marked)
     return kept.length ? { ...f, images: kept } : f
   })
   if (!files.size) return d

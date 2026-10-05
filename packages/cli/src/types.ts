@@ -40,7 +40,11 @@ export type Finding = {
   images?: Snapshot[]
 }
 
-export type Snapshot = { name: string; expected?: string; actual?: string; diff?: string }
+// marked: lo recibido con la zona que cambió encerrada; change: cuánto y dónde, para decirlo en texto
+export type Snapshot = {
+  name: string; expected?: string; actual?: string; diff?: string; marked?: string
+  change?: { pixels: number; percent: number; zone: string }
+}
 
 export type CheckResult = { check: string; status: 'pass' | 'fail' | 'warn'; findings: Finding[] }
 
