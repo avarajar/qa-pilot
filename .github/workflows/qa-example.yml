@@ -12,3 +12,5 @@ jobs:
       root: examples/notes
       # el qa-pilot que decide es el de la rama base, nunca el del PR
       qa-pilot-ref: ${{ github.event.pull_request.base.sha || github.sha }}
+    # opcional: si el repo tiene el secreto, publish describe con Claude qué cambió en cada captura
+    secrets: { anthropic-api-key: '${{ secrets.ANTHROPIC_API_KEY }}' }

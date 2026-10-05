@@ -97,10 +97,15 @@ describe('QaReporter', () => {
     const r = new QaReporter({ outputDir: out })
     r.onTestEnd(tc('notas', 'unexpected'), res('failed', ['toHaveScreenshot: pixels differ'], [
       img('notas-light-expected.png'), img('notas-light-actual.png'), img('notas-light-diff.png', true),
+      { name: 'notas-light-elements.json', body: Buffer.from(JSON.stringify([
+        { kind: 'button', label: 'Borrar', box: { x: 80, y: 4, w: 12, h: 6 } },
+        { kind: 'h1', label: 'Notas', box: { x: 2, y: 2, w: 20, h: 8 } },
+      ])) } as never,
     ]))
     r.onEnd()
     const [snap] = JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).findings[0].images
     expect(snap.change).toEqual({ pixels: 40, percent: 0.8, zone: 'arriba a la derecha' })
+    expect(snap.elements).toEqual(['botón «Borrar»'])
     expect(snap.marked).toBe('artifacts/owner-mobile-notas-light-marked.png')
     expect(PNG.sync.read(readFileSync(join(out, snap.marked))).width).toBe(100)
   })

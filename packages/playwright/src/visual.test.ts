@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PNG } from 'pngjs'
-import { describeDiff, markChange, zoneName } from './visual.js'
+import { describeDiff, elementsInZone, markChange, zoneName } from './visual.js'
 
 // imagen gris como las de diff de Playwright, con rectángulos pintados de un color
 function png(w: number, h: number, paint: Array<{ x: number; y: number; w: number; h: number; rgb: [number, number, number] }> = []): Buffer {
@@ -57,5 +57,30 @@ describe('markChange', () => {
     expect(at(72, 20)).toEqual([230, 230, 230]) // fuera del recuadro
     expect(at(74, 0)).toEqual([220, 38, 38]) // borde superior, recortado al tope de la imagen
     expect(at(85, 7)).toEqual([230, 230, 230]) // adentro queda igual
+  })
+})
+
+describe('elementsInZone', () => {
+  const el = (kind: string, label: string, x: number, y: number, w: number, h: number) => ({ kind, label, box: { x, y, w, h } })
+  const page = [
+    el('li', 'Revisar el contrato de qa/ Borrar', 360, 96, 560, 52),
+    el('button', 'Borrar', 856, 104, 64, 34),
+    el('li', 'Grabar la demo Borrar', 360, 151, 560, 52),
+    el('button', 'Borrar', 856, 159, 64, 34),
+    el('span', 'Grabar la demo', 360, 166, 108, 20),
+    el('h1', 'Notas', 360, 24, 70, 36),
+  ]
+  it('nombra lo que está en la zona, agrupado, sin los contenedores', () => {
+    expect(elementsInZone(page, { x: 856, y: 104, w: 64, h: 89 })).toEqual(['botón «Borrar» ×2'])
+  })
+  it('un elemento apenas rozado no cuenta; varios tipos van por orden de aparición', () => {
+    expect(elementsInZone(page, { x: 360, y: 24, w: 110, h: 160 })).toEqual(['texto «Grabar la demo»', 'título «Notas»'])
+  })
+  it('recorta etiquetas largas y limita la lista', () => {
+    const many = Array.from({ length: 8 }, (_, i) => el('a', `Enlace número ${i} con un texto bastante largo para recortar`, i * 10, 0, 10, 10))
+    const out = elementsInZone(many, { x: 0, y: 0, w: 80, h: 10 })
+    expect(out).toHaveLength(6)
+    expect(out[5]).toBe('y 3 más')
+    expect(out[0]).toBe('enlace «Enlace número 0 con un texto bastante l…»')
   })
 })

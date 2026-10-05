@@ -44,6 +44,9 @@ export type Finding = {
 export type Snapshot = {
   name: string; expected?: string; actual?: string; diff?: string; marked?: string
   change?: { pixels: number; percent: number; zone: string }
+  // elements: qué hay en la zona que cambió (del reporter); ai: la frase de Claude (de publish)
+  elements?: string[]
+  ai?: string
 }
 
 export type CheckResult = { check: string; status: 'pass' | 'fail' | 'warn'; findings: Finding[] }

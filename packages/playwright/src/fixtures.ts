@@ -3,6 +3,7 @@ import { AxeBuilder } from '@axe-core/playwright'
 import { loadContract } from 'qa-pilot'
 import { loginAs } from './auth/login.js'
 import { findRoot } from './config.js'
+import { collectElements } from './visual.js'
 
 export type Qa = {
   role: string
@@ -32,9 +33,15 @@ export const test = base.extend<{ qa: Qa; qaIsolationHeader: string | undefined 
         // claro y oscuro; soft para que un cambio en un tema no oculte el otro
         for (const colorScheme of ['light', 'dark'] as const) {
           await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+          const before = test.info().errors.length
           await expect.soft(page).toHaveScreenshot(`${name}-${colorScheme}.png`, {
             animations: 'disabled', caret: 'hide', fullPage: true, mask: opts.mask ?? [], maxDiffPixels: 8,
           })
+          // si la captura cambió, qué hay en la página y dónde: el reporter nombra lo que cae en la zona
+          if (test.info().errors.length > before) {
+            const elements = await page.evaluate(collectElements).catch(() => [])
+            await test.info().attach(`${name}-${colorScheme}-elements.json`, { body: JSON.stringify(elements), contentType: 'application/json' })
+          }
         }
         await page.emulateMedia({ colorScheme: null })
       },

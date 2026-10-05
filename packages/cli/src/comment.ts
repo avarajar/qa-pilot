@@ -59,10 +59,18 @@ export function isChange(c: unknown): c is NonNullable<Snapshot['change']> {
   return !!v && Number.isFinite(v.pixels) && Number.isFinite(v.percent) && typeof v.zone === 'string' && v.zone.length <= 60
 }
 
-function changeText(c: Snapshot['change']): string {
+export const isElements = (e: unknown): e is string[] =>
+  Array.isArray(e) && e.length <= 6 && e.every(x => typeof x === 'string' && x.length <= 80)
+
+// dentro de una celda de la tabla: escapado y sin romper columnas
+const cellText = (s: string) => esc(s).replace(/\|/g, '\\|')
+
+function changeText(snap: Snapshot): string {
+  const c = snap.change
   if (!isChange(c)) return ''
-  const pct = c.percent < 0.1 ? 'menos de 0,1 %' : `${String(c.percent).replace('.', ',')} %`
-  return `Cambió ${pct} de la captura (${c.pixels} ${c.pixels === 1 ? 'píxel' : 'píxeles'}), ${esc(c.zone)}.`
+  const amount = `${c.percent < 0.1 ? 'menos de 0,1 %' : `${String(c.percent).replace('.', ',')} %`} de la captura (${c.pixels} ${c.pixels === 1 ? 'píxel' : 'píxeles'})`
+  if (isElements(snap.elements) && snap.elements.length) return `Cambió: ${cellText(snap.elements.join(', '))} · ${amount} · ${cellText(c.zone)}.`
+  return `Cambió ${amount}, ${cellText(c.zone)}.`
 }
 
 // antes, después y diferencia de cada captura que cambió, con las imágenes que subió publish
@@ -75,15 +83,17 @@ function visualChanges(d: Decision): string[] {
   if (!rows.length) return []
   const lines = ['', '**Cambios visuales**', '', '| Captura | Antes | Después | Diferencia |', '|---|---|---|---|']
   for (const { f, snap } of rows.slice(0, MAX_VISUAL_ROWS)) {
-    const text = changeText(snap.change)
-    const name = esc(String(snap.name)).replace(/\|/g, '\\|') + (f.journey ? ` (${esc(f.journey)})` : '') + (text ? `<br><sub>${text}</sub>` : '')
+    const text = changeText(snap)
+    const ai = typeof snap.ai === 'string' && snap.ai ? `<br>**${cellText(snap.ai.slice(0, 200))}** _(IA)_` : ''
+    const name = cellText(String(snap.name)) + (f.journey ? ` (${esc(f.journey)})` : '') + ai + (text ? `<br><sub>${text}</sub>` : '')
     // en Después va la versión con la zona encerrada; el clic abre la captura limpia
     const after = ok(snap.marked) ? img(snap.marked, ok(snap.actual) ? snap.actual : snap.marked) : ok(snap.actual) ? img(snap.actual) : '—'
     lines.push(`| ${name} | ${ok(snap.expected) ? img(snap.expected) : '—'} | ${after} | ${ok(snap.diff) ? img(snap.diff) : '—'} |`)
   }
   if (rows.length > MAX_VISUAL_ROWS) lines.push('', `<sub>${rows.length - MAX_VISUAL_ROWS} capturas más en el artifact qa-results</sub>`)
   const marked = rows.some(({ snap }) => ok(snap.marked))
-  lines.push('', `<sub>${marked ? 'El recuadro rojo en **Después** marca la zona que cambió. ' : ''}En **Diferencia**, lo rojo son los píxeles distintos y lo amarillo, bordes suavizados que no cuentan. Clic en una imagen para verla en grande.</sub>`)
+  const anyAi = rows.some(({ snap }) => typeof snap.ai === 'string' && snap.ai)
+  lines.push('', `<sub>${anyAi ? '_(IA)_: descripción hecha por Claude mirando Antes y Después; puede equivocarse. ' : ''}${marked ? 'El recuadro rojo en **Después** marca la zona que cambió. ' : ''}En **Diferencia**, lo rojo son los píxeles distintos y lo amarillo, bordes suavizados que no cuentan. Clic en una imagen para verla en grande.</sub>`)
   return lines
 }
 

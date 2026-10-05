@@ -155,6 +155,17 @@ describe('publish con capturas que cambiaron', () => {
     expect(extractDecision(body)!.evidence).toBeUndefined()
   })
 
+  it('con describe, cada captura con antes y después lleva la frase de la IA', async () => {
+    const { gh, state } = fakeGitHub()
+    const seen: Array<{ zone?: string; elements?: string[] }> = []
+    const describe = async (i: { zone?: string; elements?: string[] }) => { seen.push(i); return 'Los botones «Borrar» pasaron de rojo a verde.' }
+    await publish(gh, 7, visual([{ ...snap, elements: ['botón «Borrar» ×3', 42 as never] }, { name: 'sin antes', actual: 'artifacts/b-actual.png' }]), { readImage: () => PNG, describe })
+    expect(seen).toEqual([{ expected: PNG, actual: PNG, zone: 'arriba', elements: ['botón «Borrar» ×3'] }])
+    const images = extractDecision(state.comments.get(MARKER)!)!.findings[0]!.images!
+    expect(images[0]).toMatchObject({ ai: 'Los botones «Borrar» pasaron de rojo a verde.', elements: ['botón «Borrar» ×3'] })
+    expect(images[1]!.ai).toBeUndefined()
+  })
+
   it('sin capturas que cambiaron no sube nada', async () => {
     const { gh, state } = fakeGitHub()
     await publish(gh, 7, decision(), { readImage: () => PNG })
@@ -172,6 +183,14 @@ describe('renderComment con capturas', () => {
     expect(body).toContain('admin-desktop · notas-light (J1)<br><sub>Cambió 0,4 % de la captura (3708 píxeles), a la derecha, a media altura.</sub>')
     expect(body).toContain('<a href="https://github.com/o/r/raw/c/artifacts/a.png"><img src="https://github.com/o/r/raw/c/artifacts/m.png"')
     expect(body).toContain('El recuadro rojo en **Después** marca la zona que cambió')
+  })
+  it('con elementos e IA: la frase arriba y debajo qué elementos, cuánto y dónde', () => {
+    const body = renderComment(decision({ evidence: ev, findings: [{ check: 'e2e', kind: 'visual-diff', message: 'x', journey: 'J1', images: [{
+      name: 'admin-desktop · notas-light', diff: 'artifacts/d.png', elements: ['botón «Borrar» ×3'],
+      change: { pixels: 672, percent: 0.1, zone: 'arriba a la derecha' }, ai: 'Los botones | «Borrar» <b>pasaron</b> a verde.',
+    }] }] }))
+    expect(body).toContain('admin-desktop · notas-light (J1)<br>**Los botones \\| «Borrar» &lt;b&gt;pasaron&lt;/b&gt; a verde.** _(IA)_<br><sub>Cambió: botón «Borrar» ×3 · 0,1 % de la captura (672 píxeles) · arriba a la derecha.</sub>')
+    expect(body).toContain('_(IA)_: descripción hecha por Claude')
   })
   it('un cambio de menos de 0,1 % no dice "0 %"', () => {
     const body = renderComment(decision({ evidence: ev, findings: [{ check: 'e2e', kind: 'visual-diff', message: 'x', images: [{

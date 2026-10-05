@@ -73,3 +73,54 @@ export function markChange(actualFile: string, box: Box, outFile: string): boole
   writeFileSync(outFile, PNG.sync.write(img))
   return true
 }
+
+// lo que se ve en la página, con su posición en la captura de página completa
+export type PageElement = { kind: string; label: string; box: Box }
+
+const KINDS: Record<string, string> = {
+  button: 'botón', a: 'enlace', input: 'campo', select: 'lista', textarea: 'campo de texto', img: 'imagen', svg: 'ícono',
+  h1: 'título', h2: 'título', h3: 'título', h4: 'título', h5: 'título', h6: 'título',
+  p: 'texto', span: 'texto', label: 'texto', li: 'fila', td: 'celda', th: 'celda', nav: 'menú', header: 'encabezado', footer: 'pie',
+}
+const MAX_LABEL = 40
+const MAX_ELEMENTS = 5
+
+const area = (b: Box) => b.w * b.h
+function overlap(a: Box, b: Box): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+  return w > 0 && h > 0 ? w * h : 0
+}
+const contains = (outer: Box, inner: Box) =>
+  outer !== inner && inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h
+
+// qué elementos caen en la zona que cambió: los que quedan adentro al menos a medias, sin sus contenedores
+export function elementsInZone(elements: PageElement[], zone: Box): string[] {
+  const hit = elements.filter(e => area(e.box) > 0 && overlap(e.box, zone) / area(e.box) >= 0.5)
+  const leaves = hit.filter(e => !hit.some(o => contains(e.box, o.box)))
+  const groups = new Map<string, number>()
+  for (const e of leaves) {
+    const text = e.label.replace(/\s+/g, ' ').trim()
+    const label = text.length > MAX_LABEL ? `${text.slice(0, MAX_LABEL - 1)}…` : text
+    const key = `${KINDS[e.kind] ?? 'elemento'}${label ? ` «${label}»` : ''}`
+    groups.set(key, (groups.get(key) ?? 0) + 1)
+  }
+  const names = [...groups].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k))
+  return names.length > MAX_ELEMENTS ? [...names.slice(0, MAX_ELEMENTS), `y ${names.length - MAX_ELEMENTS} más`] : names
+}
+
+// corre en el navegador: elementos visibles con texto o rol, en coordenadas de la página completa
+export function collectElements(): PageElement[] {
+  const out: PageElement[] = []
+  const selector = 'button,a,input,select,textarea,img,svg,h1,h2,h3,h4,h5,h6,p,span,label,li,td,th,nav,header,footer'
+  for (const node of Array.from(document.querySelectorAll(selector))) {
+    const r = node.getBoundingClientRect()
+    if (r.width < 2 || r.height < 2) continue
+    const style = getComputedStyle(node)
+    if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) continue
+    const h = node as HTMLElement
+    const label = (h.innerText || h.getAttribute('aria-label') || h.getAttribute('alt') || h.getAttribute('placeholder') || (h as HTMLInputElement).value || '').trim()
+    out.push({ kind: node.tagName.toLowerCase(), label, box: { x: Math.round(r.left + scrollX), y: Math.round(r.top + scrollY), w: Math.round(r.width), h: Math.round(r.height) } })
+  }
+  return out
+}

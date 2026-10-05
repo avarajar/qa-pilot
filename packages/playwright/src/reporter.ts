@@ -1,7 +1,7 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
-import { describeDiff, markChange } from './visual.js'
+import { describeDiff, elementsInZone, markChange, type PageElement } from './visual.js'
 
 type Finding = {
   kind: 'test-failed' | 'flaky' | 'visual-diff' | 'a11y' | 'error'
@@ -17,6 +17,7 @@ type Finding = {
 type Snapshot = {
   name: string; expected?: string; actual?: string; diff?: string; marked?: string
   change?: { pixels: number; percent: number; zone: string }
+  elements?: string[]
 }
 
 const SNAPSHOT_PART = /^(.+)-(expected|actual|diff)\.png$/
@@ -58,6 +59,18 @@ export function classify(test: TestCase, result: TestResult): Finding[] {
     return [{ kind: 'a11y', message: `${label}: ${a11y.replace(/^Error: /, '').split('\n')[0]}`, ...base }]
   }
   return [{ kind: 'test-failed', message: `${label}: ${summarize(messages[0] ?? 'falló')}`, ...base }]
+}
+
+// lo que anotó qa.snap al fallar la captura: <nombre>-elements.json
+function pageElements(result: TestResult, stem: string): PageElement[] {
+  const a = result.attachments.find(x => x.name === `${stem}-elements.json`)
+  try {
+    const raw = a?.body ? a.body.toString('utf8') : a?.path ? readFileSync(a.path, 'utf8') : '[]'
+    const list = JSON.parse(raw) as PageElement[]
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
 }
 
 export default class QaReporter implements Reporter {
@@ -104,6 +117,8 @@ export default class QaReporter implements Reporter {
       const summary = describeDiff(join(this.outputDir, snap.diff))
       if (!summary) continue
       snap.change = { pixels: summary.pixels, percent: summary.percent, zone: summary.zone }
+      const elements = elementsInZone(pageElements(result, stem), summary.box)
+      if (elements.length) snap.elements = elements
       const marked = `${project}-${stem}-marked.png`
       if (snap.actual && markChange(join(this.outputDir, snap.actual), summary.box, join(this.outputDir, 'artifacts', marked))) {
         snap.marked = `artifacts/${marked}`

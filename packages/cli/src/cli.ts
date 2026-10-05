@@ -9,6 +9,7 @@ import type { Decision, QaConfig } from './types.js'
 import { restGitHub } from './github.js'
 import { publish, approveCheck, MAX_IMAGE_BYTES } from './publish.js'
 import { prFromEvent, approvalFromEvent } from './events.js'
+import { claudeDescriber } from './describe.js'
 
 function githubContext(io: Io): { gh: ReturnType<typeof restGitHub>; event: unknown } | null {
   const { GITHUB_TOKEN: token, GITHUB_REPOSITORY: repo, GITHUB_EVENT_PATH: eventPath, GITHUB_API_URL: api, GITHUB_SERVER_URL: web } = process.env
@@ -127,7 +128,11 @@ commands.publish = async (args, io) => {
   const file = join(out, 'decision.json')
   if (!existsSync(file)) { io.err(`No existe ${file}: corre qa-pilot run o route antes`); return 1 }
   const d = JSON.parse(readFileSync(file, 'utf8')) as Decision
-  await publish(ctx.gh, pr, d, { readImage: path => readImage(out, path) })
+  // la descripción con IA es opcional: solo si el repo pasó la clave al job publish
+  const describe = process.env.ANTHROPIC_API_KEY
+    ? claudeDescriber({ ...(process.env.QA_PILOT_AI_MODEL ? { model: process.env.QA_PILOT_AI_MODEL } : {}) })
+    : undefined
+  await publish(ctx.gh, pr, d, { readImage: path => readImage(out, path), ...(describe ? { describe } : {}) })
   io.out(`PR #${pr}: ${d.decision}`)
   return 0
 }

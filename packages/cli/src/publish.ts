@@ -1,4 +1,5 @@
-import { EVIDENCE_PATH, MARKER, extractDecision, isChange, renderComment } from './comment.js'
+import { EVIDENCE_PATH, MARKER, extractDecision, isChange, isElements, renderComment } from './comment.js'
+import type { Describe } from './describe.js'
 import type { GitHub } from './github.js'
 import type { Decision, Snapshot } from './types.js'
 
@@ -20,9 +21,12 @@ const DESCRIPTION: Record<Decision['decision'], string> = {
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 export const MAX_IMAGE_BYTES = 2_000_000
 const MAX_IMAGES = 30
+// cada descripción manda dos imágenes a Claude: un PR con muchas capturas no debe costar de más
+const MAX_DESCRIBED = 5
 
 // readImage: lee una ruta relativa a qa-results; null si no existe o no se puede leer
-export type PublishOptions = { readImage?: (path: string) => Buffer | null }
+// describe: si está, cada captura con antes y después lleva una frase de qué cambió
+export type PublishOptions = { readImage?: (path: string) => Buffer | null; describe?: Describe }
 
 export async function publish(gh: GitHub, pr: number, d: Decision, opts: PublishOptions = {}): Promise<void> {
   const current = await gh.getPr(pr)
@@ -33,13 +37,13 @@ export async function publish(gh: GitHub, pr: number, d: Decision, opts: Publish
   // primero el status: es lo que exige branch protection, y no depende de que el comentario quepa
   const gates = d.gates.map(g => g.id).join(', ')
   await gh.setStatus(d.sha, STATUS[d.decision], gates ? `${DESCRIPTION[d.decision]} (${gates})` : DESCRIPTION[d.decision])
-  const shown = opts.readImage ? await attachEvidence(gh, pr, d, opts.readImage) : d
+  const shown = opts.readImage ? await attachEvidence(gh, pr, d, opts.readImage, opts.describe) : d
   await gh.upsertComment(pr, MARKER, renderComment(shown))
   if (d.decision === 'auto') await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: d.sha })
 }
 
 // sube las capturas que cambiaron a la rama de evidencia; si falla, la decisión se publica sin imágenes
-async function attachEvidence(gh: GitHub, pr: number, d: Decision, readImage: (path: string) => Buffer | null): Promise<Decision> {
+async function attachEvidence(gh: GitHub, pr: number, d: Decision, readImage: (path: string) => Buffer | null, describe?: Describe): Promise<Decision> {
   const files = new Map<string, Buffer>()
   const keep = (path: string | undefined): path is string => {
     if (!path || !EVIDENCE_PATH.test(path)) return false
@@ -55,11 +59,25 @@ async function attachEvidence(gh: GitHub, pr: number, d: Decision, readImage: (p
       const s: Snapshot = { name: String(img.name) }
       for (const part of ['expected', 'actual', 'diff', 'marked'] as const) if (keep(img[part])) s[part] = img[part]
       if (isChange(img.change)) s.change = { pixels: img.change.pixels, percent: img.change.percent, zone: img.change.zone }
+      if (Array.isArray(img.elements)) {
+        const names = img.elements.filter((e): e is string => typeof e === 'string' && e.length <= 80).slice(0, 6)
+        if (isElements(names) && names.length) s.elements = names
+      }
       return s
     }).filter(s => s.expected || s.actual || s.diff || s.marked)
     return kept.length ? { ...f, images: kept } : f
   })
   if (!files.size) return d
+  if (describe) {
+    const pending = findings.flatMap(f => ('images' in f && f.images) || []).filter(s => s.expected && s.actual).slice(0, MAX_DESCRIBED)
+    await Promise.all(pending.map(async s => {
+      const ai = await describe({
+        expected: files.get(s.expected!)!, actual: files.get(s.actual!)!,
+        ...(s.change ? { zone: s.change.zone } : {}), ...(s.elements ? { elements: s.elements } : {}),
+      })
+      if (ai) s.ai = ai
+    }))
+  }
   const prefix = `pr-${pr}/${d.sha.slice(0, 7)}/`
   try {
     const base = await gh.uploadEvidence([...files].map(([path, content]) => ({ path: prefix + path, content })), `qa-pilot: evidencia del PR #${pr} (${d.sha.slice(0, 7)})`)

@@ -9,6 +9,8 @@
 #     qa:
 #       uses: avarajar/qa-pilot/.github/workflows/qa.yml@<sha o tag>
 #       # with: { root: apps/web }   # si qa/ no está en la raíz del repo
+#       # opcional: Claude describe en una frase qué cambió en cada captura
+#       # secrets: { anthropic-api-key: '${{ secrets.ANTHROPIC_API_KEY }}' }
 #
 # Branch protection debe exigir el status "qa-pilot/decision".
 #
@@ -35,6 +37,10 @@ on:
         description: Carpeta del proyecto (donde está qa/), relativa a la raíz del repo
         type: string
         default: '.'
+    secrets:
+      anthropic-api-key:
+        description: Opcional. Con ella, publish pide a Claude una frase de qué cambió en cada captura
+        required: false
 
 jobs:
   checks:
@@ -122,7 +128,8 @@ jobs:
           rm -f "$ROOT/qa-results/decision.json"
           qa-pilot route --root "$ROOT" --base "$BASE_SHA" --head "$HEAD_SHA"
       - name: Publicar decisión
-        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        # la clave solo llega a este job, que no ejecuta código del PR
+        env: { GITHUB_TOKEN: '${{ github.token }}', ANTHROPIC_API_KEY: '${{ secrets.anthropic-api-key }}' }
         run: qa-pilot publish --out "$ROOT/qa-results"
 
   approval:
