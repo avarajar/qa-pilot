@@ -8,17 +8,23 @@ export interface GitHub {
   enableAutoMerge(pr: { number: number; nodeId: string; sha: string }): Promise<void>
   react(commentId: number, content: '+1' | '-1'): Promise<void>
   comment(n: number, body: string): Promise<void>
+  // sube archivos a la rama de evidencia en un commit; devuelve la URL base de esos archivos en ese commit
+  uploadEvidence(files: Array<{ path: string; content: Buffer }>, message: string): Promise<string>
 }
+
+// rama aparte, sin historia del código: solo guarda las capturas que muestran los comentarios
+export const EVIDENCE_BRANCH = 'qa-pilot/evidence'
 
 export const STATUS_CONTEXT = 'qa-pilot/decision'
 
 // solo cuenta el comentario que escribió el bot de Actions: cualquiera puede comentar el marcador en un PR
 export const BOT_LOGIN = 'github-actions[bot]'
 
-export function restGitHub(opts: { repo: string; token: string; api?: string; fetchFn?: typeof fetch; botLogin?: string }): GitHub {
+export function restGitHub(opts: { repo: string; token: string; api?: string; web?: string; fetchFn?: typeof fetch; botLogin?: string }): GitHub {
   const api = opts.api ?? 'https://api.github.com'
+  const web = opts.web ?? 'https://github.com'
   const f = opts.fetchFn ?? fetch
-  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async function call<T>(method: string, path: string, body?: unknown, allow404 = false): Promise<T> {
     const res = await f(`${api}${path}`, {
       method,
       headers: {
@@ -29,6 +35,7 @@ export function restGitHub(opts: { repo: string; token: string; api?: string; fe
       },
       body: body ? JSON.stringify(body) : undefined,
     })
+    if (res.status === 404 && allow404) return null as T
     if (!res.ok && !(method === 'DELETE' && res.status === 404)) {
       throw new Error(`GitHub ${method} ${path}: ${res.status} ${await res.text()}`)
     }
@@ -67,6 +74,28 @@ export function restGitHub(opts: { repo: string; token: string; api?: string; fe
     },
     async comment(n, body) {
       await call('POST', `${repo}/issues/${n}/comments`, { body })
+    },
+    async uploadEvidence(files, message) {
+      const tree: Array<{ path: string; mode: '100644'; type: 'blob'; sha: string }> = []
+      for (const f of files) {
+        const blob = await call<{ sha: string }>('POST', `${repo}/git/blobs`, { content: f.content.toString('base64'), encoding: 'base64' })
+        tree.push({ path: f.path, mode: '100644', type: 'blob', sha: blob.sha })
+      }
+      // varios PRs publican a la vez: si otro movió la rama entre leerla y actualizarla, se arma encima de nuevo
+      for (let attempt = 1; ; attempt++) {
+        const head = await call<{ object: { sha: string } } | null>('GET', `${repo}/git/ref/heads/${EVIDENCE_BRANCH}`, undefined, true)
+        const parent = head?.object.sha
+        const baseTree = parent ? (await call<{ tree: { sha: string } }>('GET', `${repo}/git/commits/${parent}`)).tree.sha : undefined
+        const t = await call<{ sha: string }>('POST', `${repo}/git/trees`, { ...(baseTree ? { base_tree: baseTree } : {}), tree })
+        const commit = await call<{ sha: string }>('POST', `${repo}/git/commits`, { message, tree: t.sha, parents: parent ? [parent] : [] })
+        try {
+          if (parent) await call('PATCH', `${repo}/git/refs/heads/${EVIDENCE_BRANCH}`, { sha: commit.sha, force: false })
+          else await call('POST', `${repo}/git/refs`, { ref: `refs/heads/${EVIDENCE_BRANCH}`, sha: commit.sha })
+          return `${web}/${opts.repo}/raw/${commit.sha}/`
+        } catch (e) {
+          if (attempt >= 3) throw e
+        }
+      }
     },
     async enableAutoMerge(pr) {
       const query = 'mutation($id: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId } }'

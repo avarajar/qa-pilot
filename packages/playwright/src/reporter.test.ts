@@ -65,6 +65,35 @@ describe('QaReporter', () => {
     r2.onEnd()
     expect(JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).status).toBe('fail')
   })
+  it('copia lo esperado, lo recibido y el diff de cada captura que cambió', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))
+    const att = (name: string) => { const path = join(out, `src-${name}`); writeFileSync(path, name); return { name, path } }
+    const r = new QaReporter({ outputDir: out })
+    r.onTestEnd(tc('notas', 'unexpected', ['@J2']), res('failed', ['toHaveScreenshot: pixels differ', 'toHaveScreenshot: pixels differ'], [
+      att('notas-light-expected.png'), att('notas-light-actual.png'), att('notas-light-diff.png'),
+      att('notas-dark-expected.png'), att('notas-dark-actual.png'), att('notas-dark-diff.png'),
+      { name: 'trace', path: join(out, 'no-existe.zip') },
+    ]))
+    r.onEnd()
+    const [f] = JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).findings
+    expect(f.artifact).toBe('artifacts/owner-mobile-notas-light-diff.png')
+    expect(f.images).toEqual([
+      { name: 'owner-mobile · notas-light', expected: 'artifacts/owner-mobile-notas-light-expected.png', actual: 'artifacts/owner-mobile-notas-light-actual.png', diff: 'artifacts/owner-mobile-notas-light-diff.png' },
+      { name: 'owner-mobile · notas-dark', expected: 'artifacts/owner-mobile-notas-dark-expected.png', actual: 'artifacts/owner-mobile-notas-dark-actual.png', diff: 'artifacts/owner-mobile-notas-dark-diff.png' },
+    ])
+    expect(readFileSync(join(out, 'artifacts/owner-mobile-notas-dark-actual.png'), 'utf8')).toBe('notas-dark-actual.png')
+  })
+  it('captura nueva sin imagen base: solo lo recibido', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))
+    const path = join(out, 'src.png')
+    writeFileSync(path, 'png')
+    const r = new QaReporter({ outputDir: out })
+    r.onTestEnd(tc('nueva', 'unexpected'), res('failed', ['toHaveScreenshot: snapshot doesn\'t exist'], [{ name: 'nueva-light-actual.png', path }]))
+    r.onEnd()
+    const [f] = JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).findings
+    expect(f.artifact).toBeUndefined()
+    expect(f.images).toEqual([{ name: 'owner-mobile · nueva-light', actual: 'artifacts/owner-mobile-nueva-light-actual.png' }])
+  })
   it('si Playwright termina en failed sin hallazgos (p. ej. "No tests found") → fail con error', () => {
     const out = mkdtempSync(join(tmpdir(), 'qa-rep-'))
     const r = new QaReporter({ outputDir: out })

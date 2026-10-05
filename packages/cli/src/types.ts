@@ -36,7 +36,11 @@ export type Finding = {
   file?: string
   severity?: 'low' | 'medium' | 'high' | 'critical'
   artifact?: string
+  // capturas que cambiaron; rutas relativas a qa-results (artifacts/<archivo>.png)
+  images?: Snapshot[]
 }
+
+export type Snapshot = { name: string; expected?: string; actual?: string; diff?: string }
 
 export type CheckResult = { check: string; status: 'pass' | 'fail' | 'warn'; findings: Finding[] }
 
@@ -51,4 +55,6 @@ export type Decision = {
   checks: Record<string, CheckResult['status']>
   findings: Array<Finding & { check: string }>
   omittedFindings?: number
+  // base de las URLs de las imágenes subidas por publish: <evidence><ruta de images>
+  evidence?: string
 }

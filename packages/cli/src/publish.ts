@@ -1,6 +1,6 @@
-import { MARKER, extractDecision, renderComment } from './comment.js'
+import { EVIDENCE_PATH, MARKER, extractDecision, renderComment } from './comment.js'
 import type { GitHub } from './github.js'
-import type { Decision } from './types.js'
+import type { Decision, Snapshot } from './types.js'
 
 export const LABELS = {
   auto: 'qa:auto',
@@ -17,7 +17,14 @@ const DESCRIPTION: Record<Decision['decision'], string> = {
   blocked: 'Hay checks en rojo',
 }
 
-export async function publish(gh: GitHub, pr: number, d: Decision): Promise<void> {
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+export const MAX_IMAGE_BYTES = 2_000_000
+const MAX_IMAGES = 30
+
+// readImage: lee una ruta relativa a qa-results; null si no existe o no se puede leer
+export type PublishOptions = { readImage?: (path: string) => Buffer | null }
+
+export async function publish(gh: GitHub, pr: number, d: Decision, opts: PublishOptions = {}): Promise<void> {
   const current = await gh.getPr(pr)
   const label = FOR_DECISION[d.decision]
   // una aprobación vale solo para el SHA que se vio: cada corrida nueva la quita
@@ -26,8 +33,40 @@ export async function publish(gh: GitHub, pr: number, d: Decision): Promise<void
   // primero el status: es lo que exige branch protection, y no depende de que el comentario quepa
   const gates = d.gates.map(g => g.id).join(', ')
   await gh.setStatus(d.sha, STATUS[d.decision], gates ? `${DESCRIPTION[d.decision]} (${gates})` : DESCRIPTION[d.decision])
-  await gh.upsertComment(pr, MARKER, renderComment(d))
+  const shown = opts.readImage ? await attachEvidence(gh, pr, d, opts.readImage) : d
+  await gh.upsertComment(pr, MARKER, renderComment(shown))
   if (d.decision === 'auto') await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: d.sha })
+}
+
+// sube las capturas que cambiaron a la rama de evidencia; si falla, la decisión se publica sin imágenes
+async function attachEvidence(gh: GitHub, pr: number, d: Decision, readImage: (path: string) => Buffer | null): Promise<Decision> {
+  const files = new Map<string, Buffer>()
+  const keep = (path: string | undefined): path is string => {
+    if (!path || !EVIDENCE_PATH.test(path)) return false
+    if (files.has(path)) return true
+    if (files.size >= MAX_IMAGES) return false
+    const content = readImage(path)
+    if (!content || content.length > MAX_IMAGE_BYTES || !content.subarray(0, 8).equals(PNG_MAGIC)) return false
+    files.set(path, content)
+    return true
+  }
+  const findings = d.findings.map(({ images, ...f }) => {
+    const kept = (images ?? []).map(img => {
+      const s: Snapshot = { name: String(img.name) }
+      for (const part of ['expected', 'actual', 'diff'] as const) if (keep(img[part])) s[part] = img[part]
+      return s
+    }).filter(s => s.expected || s.actual || s.diff)
+    return kept.length ? { ...f, images: kept } : f
+  })
+  if (!files.size) return d
+  const prefix = `pr-${pr}/${d.sha.slice(0, 7)}/`
+  try {
+    const base = await gh.uploadEvidence([...files].map(([path, content]) => ({ path: prefix + path, content })), `qa-pilot: evidencia del PR #${pr} (${d.sha.slice(0, 7)})`)
+    return { ...d, findings, evidence: base + prefix }
+  } catch (e) {
+    console.error(`qa-pilot: no se pudieron subir las capturas: ${(e as Error).message}`)
+    return d
+  }
 }
 
 export type ApprovalEvent = { action: 'labeled' | 'created'; actor: string; label?: string; comment?: string; commentId?: number }

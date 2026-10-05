@@ -62,4 +62,46 @@ describe('restGitHub', () => {
       expect(calls.map(c => c.method)).toEqual(['POST'])
     })
   })
+
+  describe('uploadEvidence', () => {
+    function gitFetch(opts: { branch?: string; conflicts?: number } = {}) {
+      const calls: Array<{ method: string; url: string; body?: Record<string, unknown> }> = []
+      let conflicts = opts.conflicts ?? 0
+      const fn = (async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined
+        calls.push({ method, url, body })
+        const ok = (json: unknown, status = 200) => new Response(JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } })
+        if (url.endsWith('/git/ref/heads/qa-pilot/evidence')) return opts.branch ? ok({ object: { sha: opts.branch } }) : ok({ message: 'Not Found' }, 404)
+        if (url.includes('/git/commits/') && method === 'GET') return ok({ tree: { sha: 'tree-padre' } })
+        if (url.endsWith('/git/blobs')) return ok({ sha: `blob-${calls.length}` })
+        if (url.endsWith('/git/trees')) return ok({ sha: 'tree-nuevo' })
+        if (url.endsWith('/git/commits')) return ok({ sha: 'commit-nuevo' })
+        if (url.endsWith('/git/refs/heads/qa-pilot/evidence') && conflicts-- > 0) return ok({ message: 'Update is not a fast forward' }, 422)
+        return ok({})
+      }) as unknown as typeof fetch
+      return { fn, calls }
+    }
+    const files = [{ path: 'pr-7/abc/artifacts/a.png', content: Buffer.from('png') }]
+
+    it('crea la rama si no existe y devuelve la URL de las imágenes en ese commit', async () => {
+      const { fn, calls } = gitFetch()
+      const base = await restGitHub({ repo: 'o/r', token: 't', fetchFn: fn }).uploadEvidence(files, 'msg')
+      expect(base).toBe('https://github.com/o/r/raw/commit-nuevo/')
+      expect(calls.find(c => c.url.endsWith('/git/blobs'))!.body).toEqual({ content: Buffer.from('png').toString('base64'), encoding: 'base64' })
+      expect(calls.find(c => c.url.endsWith('/git/trees'))!.body).toEqual({ tree: [{ path: 'pr-7/abc/artifacts/a.png', mode: '100644', type: 'blob', sha: 'blob-1' }] })
+      expect(calls.find(c => c.url.endsWith('/git/commits'))!.body).toEqual({ message: 'msg', tree: 'tree-nuevo', parents: [] })
+      expect(calls.at(-1)).toMatchObject({ method: 'POST', url: 'https://api.github.com/repos/o/r/git/refs', body: { ref: 'refs/heads/qa-pilot/evidence', sha: 'commit-nuevo' } })
+    })
+
+    it('si la rama existe agrega encima, y reintenta si otro PR la movió', async () => {
+      const { fn, calls } = gitFetch({ branch: 'padre', conflicts: 1 })
+      await restGitHub({ repo: 'o/r', token: 't', fetchFn: fn, web: 'https://ghe.test' }).uploadEvidence(files, 'msg')
+      expect(calls.find(c => c.url.endsWith('/git/trees'))!.body).toMatchObject({ base_tree: 'tree-padre' })
+      expect(calls.find(c => c.url.endsWith('/git/commits'))!.body).toMatchObject({ parents: ['padre'] })
+      const updates = calls.filter(c => c.method === 'PATCH')
+      expect(updates).toHaveLength(2)
+      expect(updates[0]!.body).toEqual({ sha: 'commit-nuevo', force: false })
+    })
+  })
 })

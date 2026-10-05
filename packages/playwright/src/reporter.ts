@@ -8,7 +8,13 @@ type Finding = {
   journey?: string
   file?: string
   artifact?: string
+  images?: Snapshot[]
 }
+
+// una captura que cambió: rutas relativas a qa-results, como las sube publish
+type Snapshot = { name: string; expected?: string; actual?: string; diff?: string }
+
+const SNAPSHOT_PART = /^(.+)-(expected|actual|diff)\.png$/
 
 // los errores de expect vienen coloreados para la terminal
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
@@ -64,17 +70,31 @@ export default class QaReporter implements Reporter {
     if (test.outcome() === 'unexpected' && result.retry < test.retries && result.status !== 'passed') return
     for (const f of classify(test, result)) {
       if (f.kind === 'visual-diff') {
-        const diff = result.attachments.find(a => a.name.endsWith('-diff.png') && a.path && existsSync(a.path))
-        if (diff?.path) {
-          const project = test.parent.project()?.name ?? 'default'
-          const name = `${project}-${diff.name}`
-          mkdirSync(join(this.outputDir, 'artifacts'), { recursive: true })
-          copyFileSync(diff.path, join(this.outputDir, 'artifacts', name))
-          f.artifact = `artifacts/${name}`
-        }
+        const images = this.copySnapshots(test, result)
+        if (images.length) f.images = images
+        const diff = images.find(i => i.diff)?.diff
+        if (diff) f.artifact = diff
       }
       this.findings.push(f)
     }
+  }
+
+  // Playwright adjunta <nombre>-expected/-actual/-diff.png por cada toHaveScreenshot que falló
+  private copySnapshots(test: TestCase, result: TestResult): Snapshot[] {
+    const project = test.parent.project()?.name ?? 'default'
+    const byName = new Map<string, Snapshot>()
+    for (const a of result.attachments) {
+      const m = SNAPSHOT_PART.exec(a.name)
+      if (!m || !a.path || !existsSync(a.path)) continue
+      const [, stem, part] = m as unknown as [string, string, 'expected' | 'actual' | 'diff']
+      const file = `${project}-${a.name}`
+      mkdirSync(join(this.outputDir, 'artifacts'), { recursive: true })
+      copyFileSync(a.path, join(this.outputDir, 'artifacts', file))
+      const snap = byName.get(stem) ?? { name: `${project} · ${stem}` }
+      snap[part] = `artifacts/${file}`
+      byName.set(stem, snap)
+    }
+    return [...byName.values()]
   }
 
   onEnd(result?: FullResult): void {

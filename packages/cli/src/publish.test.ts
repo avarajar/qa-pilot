@@ -12,6 +12,8 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     autoMerge: [] as Array<{ number: number; nodeId: string; sha: string }>,
     reactions: [] as Array<{ commentId: number; content: string }>,
     replies: [] as string[],
+    uploads: [] as Array<{ paths: string[]; message: string }>,
+    uploadFails: false,
   }
   const gh: GitHub = {
     async getPr(n) { return { number: n, headSha, labels: [...state.labels], nodeId: 'PR_node' } },
@@ -22,6 +24,11 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     async enableAutoMerge(pr) { state.autoMerge.push(pr) },
     async react(commentId, content) { state.reactions.push({ commentId, content }) },
     async comment(_n, body) { state.replies.push(body) },
+    async uploadEvidence(files, message) {
+      if (state.uploadFails) throw new Error('GitHub POST git/blobs: 403')
+      state.uploads.push({ paths: files.map(f => f.path), message })
+      return 'https://github.com/o/r/raw/c0ffee/'
+    },
   }
   return { gh, state }
 }
@@ -100,6 +107,65 @@ describe('publish', () => {
     const { gh, state } = fakeGitHub('sha2', [LABELS.needsHuman, LABELS.approved, 'bug'])
     await publish(gh, 7, decision({ sha: 'sha2' }))
     expect([...state.labels].sort()).toEqual(['bug', LABELS.needsHuman])
+  })
+})
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+
+describe('publish con capturas que cambiaron', () => {
+  const visual = (images: Decision['findings'][number]['images']) =>
+    decision({ sha: 'abcdef1234', findings: [{ check: 'e2e', kind: 'visual-diff', message: 'admin-desktop › notas: la captura cambió', journey: 'J2', images }] })
+  const snap = { name: 'admin-desktop · notas-light', expected: 'artifacts/a-expected.png', actual: 'artifacts/a-actual.png', diff: 'artifacts/a-diff.png' }
+
+  it('sube las imágenes a la rama de evidencia y las muestra en el comentario', async () => {
+    const { gh, state } = fakeGitHub()
+    await publish(gh, 7, visual([snap]), { readImage: () => PNG })
+    expect(state.uploads).toEqual([{
+      paths: ['pr-7/abcdef1/artifacts/a-expected.png', 'pr-7/abcdef1/artifacts/a-actual.png', 'pr-7/abcdef1/artifacts/a-diff.png'],
+      message: 'qa-pilot: evidencia del PR #7 (abcdef1)',
+    }])
+    const body = state.comments.get(MARKER)!
+    expect(body).toContain('**Cambios visuales**')
+    expect(body).toContain('<img src="https://github.com/o/r/raw/c0ffee/pr-7/abcdef1/artifacts/a-actual.png"')
+    // la decisión guardada sabe dónde están, para Forge y para el comentario de la aprobación
+    expect(extractDecision(body)!.evidence).toBe('https://github.com/o/r/raw/c0ffee/pr-7/abcdef1/')
+    expect(renderComment(extractDecision(body)!, { approvedBy: 'ana' })).toContain('a-diff.png')
+  })
+
+  it('no sube lo que no es un PNG de artifacts/: el PR controla esas rutas y archivos', async () => {
+    const { gh, state } = fakeGitHub()
+    const files: Record<string, Buffer> = { 'artifacts/ok-actual.png': PNG, 'artifacts/texto-actual.png': Buffer.from('<script>') }
+    await publish(gh, 7, visual([
+      { name: 'ok', actual: 'artifacts/ok-actual.png', diff: '../../.git/config' },
+      { name: 'malo', actual: 'artifacts/texto-actual.png', expected: 'artifacts/no-existe.png', diff: 'artifacts/x".png' },
+    ]), { readImage: p => files[p] ?? null })
+    expect(state.uploads[0]!.paths).toEqual(['pr-7/abcdef1/artifacts/ok-actual.png'])
+    const d = extractDecision(state.comments.get(MARKER)!)!
+    expect(d.findings[0]!.images).toEqual([{ name: 'ok', actual: 'artifacts/ok-actual.png' }])
+  })
+
+  it('si la subida falla, publica igual la decisión, sin imágenes', async () => {
+    const { gh, state } = fakeGitHub()
+    state.uploadFails = true
+    await publish(gh, 7, visual([snap]), { readImage: () => PNG })
+    expect(state.statuses).toHaveLength(1)
+    const body = state.comments.get(MARKER)!
+    expect(body).not.toContain('Cambios visuales')
+    expect(extractDecision(body)!.evidence).toBeUndefined()
+  })
+
+  it('sin capturas que cambiaron no sube nada', async () => {
+    const { gh, state } = fakeGitHub()
+    await publish(gh, 7, decision(), { readImage: () => PNG })
+    expect(state.uploads).toEqual([])
+  })
+})
+
+describe('renderComment con capturas', () => {
+  it('sin evidence no muestra imágenes, y una ruta rara no llega al HTML', () => {
+    const f = { check: 'e2e', kind: 'visual-diff' as const, message: 'x', images: [{ name: 'n', actual: 'artifacts/a" onerror="x.png' }] }
+    expect(renderComment(decision({ findings: [f] }))).not.toContain('<img')
+    expect(renderComment(decision({ evidence: 'https://github.com/o/r/raw/c/', findings: [f] }))).not.toContain('<img')
   })
 })
 

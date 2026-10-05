@@ -2,6 +2,11 @@ import type { Decision } from './types.js'
 
 export const MARKER = '<!-- qa-pilot:decision'
 
+// las rutas de imágenes salen de resultados que controla el PR: solo PNG planos dentro de artifacts/
+export const EVIDENCE_PATH = /^artifacts\/[A-Za-z0-9._-]+\.png$/
+const EVIDENCE_BASE = /^https:\/\/[^\s"'<>]+\/$/
+const MAX_VISUAL_ROWS = 10
+
 const HEADLINE: Record<Decision['decision'], string> = {
   auto: '🟢 **Aprobado automáticamente.** Ningún gate activado.',
   escalate: '🟠 **Necesita un humano.**',
@@ -31,6 +36,7 @@ export function renderComment(d: Decision, opts: { approvedBy?: string } = {}): 
     lines.push('', '| Check | Estado |', '|---|---|')
     for (const [name, status] of checks) lines.push(`| ${esc(name)} | ${ICON[status] ?? ''} ${esc(String(status))} |`)
   }
+  lines.push(...visualChanges(d))
   if (d.findings.length) {
     lines.push('', '<details><summary>Hallazgos</summary>', '')
     for (const f of d.findings.slice(0, 30)) {
@@ -45,6 +51,26 @@ export function renderComment(d: Decision, opts: { approvedBy?: string } = {}): 
   const json = JSON.stringify(d).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/--/g, '\\u002d\\u002d')
   lines.push('', MARKER, json, '-->')
   return lines.join('\n')
+}
+
+// antes, después y diferencia de cada captura que cambió, con las imágenes que subió publish
+function visualChanges(d: Decision): string[] {
+  if (!d.evidence || !EVIDENCE_BASE.test(d.evidence)) return []
+  const cell = (path?: string) => {
+    if (!path || !EVIDENCE_PATH.test(path)) return '—'
+    const url = `${d.evidence}${path}`
+    return `<a href="${url}"><img src="${url}" width="220"></a>`
+  }
+  const rows = d.findings.flatMap(f => (f.images ?? []).map(img => ({ f, img })))
+    .filter(({ img }) => [img.expected, img.actual, img.diff].some(p => p && EVIDENCE_PATH.test(p)))
+  if (!rows.length) return []
+  const lines = ['', '**Cambios visuales**', '', '| Captura | Antes | Después | Diferencia |', '|---|---|---|---|']
+  for (const { f, img } of rows.slice(0, MAX_VISUAL_ROWS)) {
+    const name = esc(String(img.name)).replace(/\|/g, '\\|') + (f.journey ? ` (${esc(f.journey)})` : '')
+    lines.push(`| ${name} | ${cell(img.expected)} | ${cell(img.actual)} | ${cell(img.diff)} |`)
+  }
+  if (rows.length > MAX_VISUAL_ROWS) lines.push('', `<sub>${rows.length - MAX_VISUAL_ROWS} capturas más en el artifact qa-results</sub>`)
+  return lines
 }
 
 export function extractDecision(body: string): Decision | null {
