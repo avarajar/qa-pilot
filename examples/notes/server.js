@@ -32,7 +32,7 @@ const page = (title, body) => `<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · Notas</title>
 <style>
-  :root { color-scheme: light dark; --bg: #fafafa; --fg: #1b1b1f; --muted: #55555e; --accent: #1d4ed8; --danger: #b42318; --line: #d4d4dc }
+  :root { color-scheme: light dark; --bg: #fafafa; --fg: #1b1b1f; --muted: #55555e; --accent: #1d4ed8; --danger: #0a7d32; --line: #d4d4dc }
   @media (prefers-color-scheme: dark) { :root { --bg: #141417; --fg: #ececf1; --muted: #a7a7b3; --accent: #8ab4ff; --danger: #ff8a7a; --line: #34343c } }
   body { font: 16px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); margin: 0; padding: 24px 16px; }
   main { max-width: 560px; margin: 0 auto; }
