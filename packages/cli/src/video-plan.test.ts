@@ -28,6 +28,25 @@ describe('planVideo', () => {
     expect(stop).toMatchObject({ images: { before: 'artifacts/e.png', after: 'artifacts/m.png' }, ai: false, seconds: 5 })
     expect((s3 as { journeys: unknown[] }).journeys).toHaveLength(1)
   })
+  it('la parada usa el hallazgo del mismo proyecto que el clip si lo hay', () => {
+    const t = tl(entry(1, { marks: [{ kind: 'snap', name: 'notas-light', atMs: 4000 }] }))
+    const mobile = visual('J1', { name: 'admin-mobile · notas-light', expected: 'artifacts/mob-e.png', marked: 'artifacts/mob-m.png' })
+    const desktop = visual('J1', { expected: 'artifacts/desk-e.png', marked: 'artifacts/desk-m.png' })
+    const p = planVideo({ decision: dec([mobile, desktop]), timeline: t, maxSeconds: 90 })
+    expect(p.segments.find(s => s.kind === 'stop')).toMatchObject({ images: { before: 'artifacts/desk-e.png', after: 'artifacts/desk-m.png' } })
+    // sin hallazgo del proyecto grabado, usa el que haya
+    const solo = planVideo({ decision: dec([mobile]), timeline: t, maxSeconds: 90 })
+    expect(solo.segments.find(s => s.kind === 'stop')).toMatchObject({ images: { before: 'artifacts/mob-e.png' } })
+  })
+  it('el mensaje de fallo de la parada es el del proyecto grabado', () => {
+    const t = tl(entry(1, { status: 'failed', marks: [{ kind: 'failure', atMs: 6000 }] }))
+    const d = dec([
+      { kind: 'test-failed', check: 'e2e', message: 'admin-mobile › entra: falló en mobile', journey: 'J1' },
+      { kind: 'test-failed', check: 'e2e', message: 'admin-desktop › entra: falló en desktop', journey: 'J1' },
+    ])
+    const p = planVideo({ decision: d, timeline: t, maxSeconds: 90 })
+    expect(p.segments.find(s => s.kind === 'stop')).toMatchObject({ text: expect.stringContaining('falló en desktop') })
+  })
   it('usa la frase de Claude si existe', () => {
     const t = tl(entry(1, { marks: [{ kind: 'snap', name: 'notas-light', atMs: 4000 }] }))
     const p = planVideo({ decision: dec([visual('J1', { ai: 'Se movió el botón' })]), timeline: t, maxSeconds: 90 })

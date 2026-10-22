@@ -16,16 +16,25 @@ function Panel({ label, src }: { label: string; src?: string }) {
   )
 }
 
-// parada en un hallazgo: antes y después lado a lado con el texto del hallazgo
+// parada en un hallazgo: antes y después lado a lado con el texto del hallazgo;
+// sin imágenes (un fallo) queda solo el texto, más grande y centrado
 export function Stop({ seg, caption }: { seg: StopSeg; caption?: string }) {
+  const images = !!(seg.images?.before || seg.images?.after)
+  const text = <>{seg.text}{seg.ai ? <span style={{ color: MUTED }}> (IA)</span> : null}</>
   return (
     <AbsoluteFill style={{ padding: 48, gap: 24 }}>
       <div style={{ fontSize: 30, fontWeight: 700 }}>{caption ?? seg.journey}</div>
-      <div style={{ flex: 1, display: 'flex', gap: 32, minHeight: 0 }}>
-        <Panel label="Antes" src={seg.images?.before} />
-        <Panel label="Después" src={seg.images?.after} />
-      </div>
-      <div style={{ fontSize: 30, lineHeight: 1.3 }}>{seg.text}{seg.ai ? <span style={{ color: MUTED }}> (IA)</span> : null}</div>
+      {images ? (
+        <>
+          <div style={{ flex: 1, display: 'flex', gap: 32, minHeight: 0 }}>
+            <Panel label="Antes" src={seg.images?.before} />
+            <Panel label="Después" src={seg.images?.after} />
+          </div>
+          <div style={{ fontSize: 30, lineHeight: 1.3 }}>{text}</div>
+        </>
+      ) : (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', fontSize: 40, lineHeight: 1.35, overflowWrap: 'anywhere' }}>{text}</div>
+      )}
     </AbsoluteFill>
   )
 }

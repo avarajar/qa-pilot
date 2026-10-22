@@ -4,6 +4,7 @@ import { render, cleanup } from '@testing-library/react'
 import { Player } from '@remotion/player'
 import type { VideoPlan, VideoScript, VideoFacts } from 'qa-pilot'
 import { QaVideo, segmentFrames, totalFrames, type QaVideoProps } from './remotion/QaVideo.js'
+import { Stop } from './remotion/segments/Stop.js'
 
 const plan: VideoPlan = {
   version: 1, fps: 30, width: 1280, height: 720, totalSeconds: 19.5,
@@ -85,5 +86,21 @@ describe('QaVideo', () => {
     expect(t).toContain('G1 · Ruta protegida: toca app/admin/**')
     expect(t).toContain('Revisa la lista antes de aprobar.')
     expect(t).toContain('Necesita un humano')
+  })
+})
+
+describe('Stop', () => {
+  it('sin imágenes muestra solo el texto, sin paneles vacíos', () => {
+    const c = render(<Stop seg={{ kind: 'stop', journey: 'J1', text: 'esperado: 4 · recibido: 3', ai: false, seconds: 5 }} caption="J1 · Entrar" />).container
+    expect(c.textContent).toContain('esperado: 4 · recibido: 3')
+    expect(c.textContent).not.toContain('sin imagen')
+    expect(c.textContent).not.toContain('Antes')
+  })
+  it('con imágenes muestra el antes y el después', () => {
+    // Img necesita el contexto de Remotion: se dibuja dentro de un Player
+    const WithImages = () => <Stop seg={{ kind: 'stop', journey: 'J1', images: { before: 'artifacts/b.png' }, text: 't', ai: false, seconds: 5 }} />
+    const c = render(<Player component={WithImages} compositionWidth={1280} compositionHeight={720} durationInFrames={30} fps={30} acknowledgeRemotionLicense />).container
+    expect(c.textContent).toContain('Antes')
+    expect(c.textContent).toContain('Después')
   })
 })

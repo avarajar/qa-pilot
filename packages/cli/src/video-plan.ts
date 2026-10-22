@@ -8,6 +8,8 @@ const FAIL_KINDS = new Set(['test-failed', 'a11y', 'error'])
 const num = (j: string) => Number(j.slice(1))
 const cents = (s: number) => Math.floor(s * 100 + 1e-6)
 const stem = (name: string) => name.split(' · ').pop() ?? name
+// el reporter nombra los hallazgos "<proyecto> › test" y las capturas "<proyecto> · nombre"
+const ofProject = (f: Finding, project: string) => f.message.startsWith(`${project} › `) || !!f.images?.some(s => s.name.startsWith(`${project} · `))
 
 export function journeyStatuses(d: Decision, t: Timeline): Map<string, JourneyStatus> {
   const out = new Map<string, JourneyStatus>()
@@ -62,6 +64,11 @@ export function planVideo({ decision, timeline, maxSeconds }: { decision: Decisi
     const stems = new Set((f?.images ?? []).map(s => stem(s.name)))
     const e = es.find(x => x.status === 'failed' || x.marks.some(m => m.kind === 'failure'))
       ?? es.find(x => x.marks.some(m => m.kind === 'snap' && m.name !== undefined && stems.has(m.name))) ?? es[0]
+    // la parada muestra el hallazgo del mismo proyecto que el clip, si lo hay
+    if (e && f) {
+      const fail = FAIL_KINDS.has(f.kind)
+      f = mine.find(x => (fail ? FAIL_KINDS.has(x.kind) : x.kind === 'visual-diff') && ofProject(x, e.project)) ?? f
+    }
     if (e && !f && e.status === 'failed') f = { kind: 'test-failed', check: 'e2e', message: 'El journey falló', journey: j }
     if (e && f) full.set(j, fullJourney(j, status, e, f))
   }
