@@ -48,11 +48,13 @@ describe('validateScript', () => {
 })
 
 describe('claudeScript', () => {
-  it('captions de Claude y cover.title del código', async () => {
-    const { client, calls } = fakeClient(json({ subtitle: 'Dos flujos revisados', title: 'otro', captions: { J1: 'J1 · La persona entra', J2: 'J2 · Ve sus notas' }, closing: 'Revisa el cambio' }))
+  it('captions de Claude; la portada (título y cuántos recorridos) sale del código', async () => {
+    const { client, calls } = fakeClient(json({ subtitle: '5 flujos revisados', title: 'otro', captions: { J1: 'J1 · La persona entra', J2: 'J2 · Ve sus notas' }, closing: 'Revisa el cambio' }))
     const s = await claudeScript({ client })(facts, journeys)
-    expect(s).toEqual({ cover: { title: 'PR #42 · Cambia permisos', subtitle: 'Dos flujos revisados' }, captions: { J1: 'J1 · La persona entra', J2: 'J2 · Ve sus notas' }, closing: 'Revisa el cambio', ai: true })
-    const p = calls[0] as { model: string; fallbacks: string; output_config: { effort: string; format: { type: string } } }
+    expect(s).toEqual({ cover: { title: 'PR #42 · Cambia permisos', subtitle: '2 recorridos revisados' }, captions: { J1: 'J1 · La persona entra', J2: 'J2 · Ve sus notas' }, closing: 'Revisa el cambio', ai: true })
+    const p = calls[0] as { model: string; fallbacks: string; system: string; output_config: { effort: string; format: { type: string; schema: { properties: object } } } }
+    expect(p.output_config.format.schema.properties).not.toHaveProperty('subtitle')
+    expect(p.system).not.toMatch(/subtitle/)
     expect(p.model).toBe(DEFAULT_MODEL)
     expect(p.fallbacks).toBe('default')
     expect(p.output_config.effort).toBe('low')

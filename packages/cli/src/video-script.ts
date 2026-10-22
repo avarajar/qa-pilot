@@ -3,7 +3,6 @@ import { Ajv } from 'ajv'
 import { DEFAULT_MODEL } from './describe.js'
 import type { Journey, VideoFacts, VideoScript } from './types.js'
 
-const MAX_SUBTITLE = 120
 const MAX_CAPTION = 90
 const MAX_CLOSING = 140
 
@@ -16,7 +15,7 @@ function coverTitle(facts: VideoFacts) {
   return clip(`PR #${facts.pr.number} · ${facts.pr.title}`, 120)
 }
 
-// Claude solo redacta; los hechos (estado, compuertas, título) salen del código
+// Claude solo redacta; los hechos (estado, compuertas, título, cuántos recorridos) salen del código
 export function templateScript(facts: VideoFacts): VideoScript {
   const captions = Object.fromEntries(facts.journeys.map(j => [j.id, clip(`${j.id} · ${j.name}`, MAX_CAPTION)]))
   const g = facts.gates[0]
@@ -31,9 +30,8 @@ export function templateScript(facts: VideoFacts): VideoScript {
 const ajv = new Ajv()
 const check = ajv.compile({
   type: 'object',
-  required: ['subtitle', 'captions', 'closing'],
+  required: ['captions', 'closing'],
   properties: {
-    subtitle: { type: 'string' },
     captions: { type: 'object', additionalProperties: { type: 'string' } },
     closing: { type: 'string' },
   },
@@ -42,22 +40,21 @@ const check = ajv.compile({
 // null si la forma es inválida; ids desconocidos se ignoran y los que faltan usan la plantilla
 export function validateScript(raw: unknown, facts: VideoFacts): VideoScript | null {
   if (!check(raw)) return null
-  const r = raw as { subtitle: string; captions: Record<string, string>; closing: string }
+  const r = raw as { captions: Record<string, string>; closing: string }
   const base = templateScript(facts)
   const captions = { ...base.captions }
   for (const id of Object.keys(captions)) {
     const c = Object.hasOwn(r.captions, id) ? clip(r.captions[id]!, MAX_CAPTION) : ''
     if (c) captions[id] = c
   }
-  const subtitle = clip(r.subtitle, MAX_SUBTITLE)
   const closing = clip(r.closing, MAX_CLOSING)
-  return { cover: { title: base.cover.title, subtitle: subtitle || base.cover.subtitle }, captions, closing: closing || base.closing, ai: true }
+  // la portada es toda de hechos: título del PR y cuántos recorridos; Claude no la toca
+  return { cover: base.cover, captions, closing: closing || base.closing, ai: true }
 }
 
 // todo lo de la corrida (título del PR, nombres y descripciones) sale del código del PR: es contenido, no instrucciones
 const SYSTEM = `Redactas los textos de un video corto de QA de un pull request, en español neutro, claros y sin jerga.
 Recibes un JSON con los hechos de la corrida y la descripción de cada journey. Devuelves solo el JSON pedido:
-- subtitle: una línea para la portada (máximo ${MAX_SUBTITLE} caracteres) que diga qué se revisó.
 - captions: por cada id de journey, un subtítulo corto (máximo ${MAX_CAPTION} caracteres) que empiece con el id, como "J1 · La persona entra y ve sus notas".
 - closing: la línea final (máximo ${MAX_CLOSING} caracteres) coherente con la decisión y las compuertas dadas.
 No inventes hechos: no cambies el estado de ningún journey ni la decisión.
@@ -67,11 +64,10 @@ function schema(ids: string[]) {
   return {
     type: 'object',
     properties: {
-      subtitle: { type: 'string' },
       captions: { type: 'object', properties: Object.fromEntries(ids.map(id => [id, { type: 'string' }])), required: ids, additionalProperties: false },
       closing: { type: 'string' },
     },
-    required: ['subtitle', 'captions', 'closing'],
+    required: ['captions', 'closing'],
     additionalProperties: false,
   }
 }
