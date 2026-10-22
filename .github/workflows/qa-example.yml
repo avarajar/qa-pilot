@@ -4,7 +4,8 @@ name: qa
 on:
   pull_request: { types: [opened, synchronize, reopened, labeled] }
   issue_comment: { types: [created] }
-permissions: { contents: write, pull-requests: write, issues: write, statuses: write }
+# actions: read para el video de QA (el job video-script lo pide aunque el video esté apagado)
+permissions: { contents: write, pull-requests: write, issues: write, statuses: write, actions: read }
 jobs:
   qa:
     uses: ./.github/workflows/qa.yml

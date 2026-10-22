@@ -15,8 +15,10 @@ jobs:
       - name: Instalar
         run: corepack enable && pnpm install --frozen-lockfile
       - name: Compilar
+        # cli, playwright y video (@qa-pilot/video depende de qa-pilot: pnpm compila en orden)
         run: pnpm -r --filter './packages/*' build
       - name: Tipos
         run: pnpm -r typecheck
       - name: Tests
+        # el render real de packages/video baja Chrome: solo corre con QA_PILOT_RENDER_TEST=1
         run: pnpm -r test

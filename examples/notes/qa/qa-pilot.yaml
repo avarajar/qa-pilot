@@ -21,3 +21,5 @@ checks:
 router:
   auto_max_lines: 200
 approvers: [avarajar]
+# graba los journeys y arma el video de QA cuando el PR escala o se bloquea (o con el label qa-video)
+video: { enabled: true }
