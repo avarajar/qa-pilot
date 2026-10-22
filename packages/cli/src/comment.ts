@@ -15,7 +15,7 @@ const HEADLINE: Record<Decision['decision'], string> = {
   blocked: '🔴 **Bloqueado.** Hay checks en rojo; el agente debe corregirlos.',
 }
 
-const GATE_NAMES: Record<string, string> = {
+export const GATE_NAMES: Record<string, string> = {
   G1: 'Ruta protegida', G2: 'Zona sensible del repo', G3: 'Cambia el oráculo', G4: 'Journey crítico',
   G5: 'Tamaño', SEC: 'Seguridad', AI: 'Revisor IA', ERR: 'Error de qa-pilot',
 }
