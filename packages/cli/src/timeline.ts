@@ -14,8 +14,8 @@ const text = (v: unknown): string | null => (typeof v === 'string' ? v.slice(0, 
 function capMarks(marks: unknown[]): unknown[] {
   if (marks.length <= MAX_MARKS) return marks
   const f = marks.findIndex(m => obj(m) && m.kind === 'failure')
-  if (f < 0) return marks.slice(0, MAX_MARKS)
-  return marks.filter((_, i) => i === f || i < f + (f < MAX_MARKS ? MAX_MARKS - 1 : 0)).slice(0, MAX_MARKS)
+  if (f < 0 || f < MAX_MARKS) return marks.slice(0, MAX_MARKS)
+  return [...marks.slice(0, MAX_MARKS - 1), marks[f]]
 }
 
 function parseEntry(raw: unknown): TimelineEntry | null {
