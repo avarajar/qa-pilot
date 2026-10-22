@@ -10,6 +10,8 @@ export interface GitHub {
   comment(n: number, body: string): Promise<void>
   // sube archivos a la rama de evidencia en un commit; devuelve la URL base de esos archivos en ese commit
   uploadEvidence(files: Array<{ path: string; content: Buffer }>, message: string): Promise<string>
+  // corrida más reciente (no vencida) de ese commit que subió el artefacto `name`; null si no hay
+  findArtifactRun(name: string, headSha: string): Promise<number | null>
 }
 
 // rama aparte, sin historia del código: solo guarda las capturas que muestran los comentarios
@@ -96,6 +98,13 @@ export function restGitHub(opts: { repo: string; token: string; api?: string; we
           if (attempt >= 3) throw e
         }
       }
+    },
+    async findArtifactRun(name, headSha) {
+      const r = await call<{ artifacts: Array<{ expired: boolean; created_at: string; workflow_run?: { id: number; head_sha: string } }> }>(
+        'GET', `${repo}/actions/artifacts?name=${encodeURIComponent(name)}&per_page=100`)
+      const hits = r.artifacts.filter(a => !a.expired && a.workflow_run?.head_sha === headSha)
+      hits.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+      return hits[0]?.workflow_run?.id ?? null
     },
     async enableAutoMerge(pr) {
       const query = 'mutation($id: ID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId } }'

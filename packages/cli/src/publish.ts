@@ -1,7 +1,7 @@
 import { EVIDENCE_PATH, MARKER, extractDecision, isChange, isElements, renderComment } from './comment.js'
 import type { Describe } from './describe.js'
 import type { GitHub } from './github.js'
-import type { Decision, QaConfig, Snapshot } from './types.js'
+import type { Decision, QaConfig, Snapshot, VideoState } from './types.js'
 
 export const LABELS = {
   auto: 'qa:auto',
@@ -95,6 +95,44 @@ async function attachEvidence(gh: GitHub, pr: number, d: Decision, readImage: (p
     console.error(`qa-pilot: no se pudieron subir las capturas: ${(e as Error).message}`)
     return d
   }
+}
+
+const MAX_MP4_BYTES = 15_000_000
+const MAX_GIF_BYTES = 5_000_000
+
+// los archivos vienen de un job que no es de fiar: forma y tamaño se revisan antes de subirlos
+const validVideo = (mp4: Buffer, gif: Buffer): boolean =>
+  mp4.length <= MAX_MP4_BYTES && mp4.subarray(4, 8).toString('latin1') === 'ftyp' &&
+  gif.length <= MAX_GIF_BYTES && gif.subarray(0, 4).toString('latin1') === 'GIF8'
+
+// pone el video en el comentario del bot (que es de fiar, por eso conserva approvedBy); 'stale' si el PR ya avanzó
+export async function publishVideo(
+  gh: GitHub,
+  pr: number,
+  sha: string,
+  files: { mp4: Buffer; gif: Buffer; seconds: number } | { failed: string },
+): Promise<'updated' | 'stale' | 'missing'> {
+  const body = await gh.findComment(pr, MARKER)
+  const d = body ? extractDecision(body) : null
+  if (!d) return 'missing'
+  if (d.sha !== sha) return 'stale'
+  let video: VideoState
+  if ('failed' in files) video = { state: 'failed', reason: files.failed }
+  else if (!validVideo(files.mp4, files.gif)) video = { state: 'failed', reason: 'el video no pasó la validación' }
+  else {
+    const prefix = `pr-${pr}/${sha.slice(0, 7)}/video/`
+    try {
+      const base = await gh.uploadEvidence(
+        [{ path: prefix + 'video.mp4', content: files.mp4 }, { path: prefix + 'preview.gif', content: files.gif }],
+        `qa-pilot: video del PR #${pr} (${sha.slice(0, 7)})`)
+      video = { state: 'ready', mp4: `${base}${prefix}video.mp4`, gif: `${base}${prefix}preview.gif`, seconds: files.seconds }
+    } catch (e) {
+      console.error(`qa-pilot: no se pudo subir el video: ${(e as Error).message}`)
+      video = { state: 'failed', reason: 'no se pudo subir el video' }
+    }
+  }
+  await gh.upsertComment(pr, MARKER, renderComment({ ...d, video }))
+  return 'updated'
 }
 
 export type ApprovalEvent = { action: 'labeled' | 'created'; actor: string; label?: string; comment?: string; commentId?: number }

@@ -104,4 +104,31 @@ describe('restGitHub', () => {
       expect(updates[0]!.body).toEqual({ sha: 'commit-nuevo', force: false })
     })
   })
+
+  describe('findArtifactRun', () => {
+    const art = (run: number, sha: string, created: string, expired = false) => ({ expired, created_at: created, workflow_run: { id: run, head_sha: sha } })
+    function artifactsFetch(artifacts: unknown[]) {
+      const calls: string[] = []
+      const fn = (async (url: string) => {
+        calls.push(url)
+        return new Response(JSON.stringify({ artifacts }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }) as unknown as typeof fetch
+      return { fn, calls }
+    }
+    it('elige el más reciente del SHA e ignora vencidos y otros SHAs', async () => {
+      const { fn, calls } = artifactsFetch([
+        art(1, 'abc', '2026-10-01T00:00:00Z'),
+        art(3, 'abc', '2026-10-03T00:00:00Z', true),
+        art(2, 'abc', '2026-10-02T00:00:00Z'),
+        art(9, 'zzz', '2026-10-09T00:00:00Z'),
+      ])
+      const gh = restGitHub({ repo: 'o/r', token: 't', fetchFn: fn })
+      expect(await gh.findArtifactRun('qa-results', 'abc')).toBe(2)
+      expect(calls[0]).toBe('https://api.github.com/repos/o/r/actions/artifacts?name=qa-results&per_page=100')
+    })
+    it('sin coincidencias → null', async () => {
+      const { fn } = artifactsFetch([art(1, 'zzz', '2026-10-01T00:00:00Z')])
+      expect(await restGitHub({ repo: 'o/r', token: 't', fetchFn: fn }).findArtifactRun('qa-results', 'abc')).toBeNull()
+    })
+  })
 })

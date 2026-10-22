@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { publish, approveCheck, wantsVideo, LABELS } from './publish.js'
+import { publish, publishVideo, approveCheck, wantsVideo, LABELS } from './publish.js'
 import { renderComment, extractDecision, MARKER } from './comment.js'
 import type { GitHub } from './github.js'
 import type { Decision, QaConfig } from './types.js'
@@ -24,6 +24,7 @@ function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
     async enableAutoMerge(pr) { state.autoMerge.push(pr) },
     async react(commentId, content) { state.reactions.push({ commentId, content }) },
     async comment(_n, body) { state.replies.push(body) },
+    async findArtifactRun() { return null },
     async uploadEvidence(files, message) {
       if (state.uploadFails) throw new Error('GitHub POST git/blobs: 403')
       state.uploads.push({ paths: files.map(f => f.path), message })
@@ -372,5 +373,64 @@ describe('wantsVideo', () => {
     expect(wantsVideo(decision({ decision: 'blocked' }), cfg(true))).toBe(true)
     expect(wantsVideo(decision({ decision: 'auto' }), cfg(true))).toBe(false)
     expect(wantsVideo(decision(), cfg(false))).toBe(false)
+  })
+})
+
+describe('publishVideo', () => {
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom'), Buffer.alloc(20)])
+  const gif = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(20)])
+  const ok = { mp4, gif, seconds: 47 }
+  const seed = async (sha = 'sha1') => {
+    const f = fakeGitHub(sha)
+    await publish(f.gh, 7, decision({ sha }), { video: true })
+    return f
+  }
+  it('ready: sube 2 archivos y el comentario queda con las URLs', async () => {
+    const { gh, state } = await seed()
+    expect(await publishVideo(gh, 7, 'sha1', ok)).toBe('updated')
+    expect(state.uploads).toHaveLength(1)
+    expect(state.uploads[0]!.paths).toEqual(['pr-7/sha1/video/video.mp4', 'pr-7/sha1/video/preview.gif'])
+    const v = extractDecision(state.comments.get(MARKER)!)?.video
+    expect(v).toEqual({ state: 'ready', mp4: 'https://github.com/o/r/raw/c0ffee/pr-7/sha1/video/video.mp4', gif: 'https://github.com/o/r/raw/c0ffee/pr-7/sha1/video/preview.gif', seconds: 47 })
+    expect(state.comments.get(MARKER)).toContain('0:47')
+  })
+  it('sin comentario → missing', async () => {
+    const { gh } = fakeGitHub('sha1')
+    expect(await publishVideo(gh, 7, 'sha1', ok)).toBe('missing')
+  })
+  it('comentario de otro SHA → stale, sin subir ni tocar', async () => {
+    const { gh, state } = await seed('otro')
+    const before = state.comments.get(MARKER)
+    expect(await publishVideo(gh, 7, 'sha1', ok)).toBe('stale')
+    expect(state.uploads).toHaveLength(0)
+    expect(state.comments.get(MARKER)).toBe(before)
+  })
+  it('failed: el comentario queda en failed, sin subidas', async () => {
+    const { gh, state } = await seed()
+    expect(await publishVideo(gh, 7, 'sha1', { failed: 'sin chrome' })).toBe('updated')
+    expect(state.uploads).toHaveLength(0)
+    expect(extractDecision(state.comments.get(MARKER)!)?.video).toEqual({ state: 'failed', reason: 'sin chrome' })
+  })
+  it('mp4 inválido o gif inválido → failed por validación, sin subidas', async () => {
+    for (const bad of [{ ...ok, mp4: Buffer.from('no soy un mp4 para nada') }, { ...ok, gif: Buffer.from('PNG....') }, { ...ok, mp4: Buffer.concat([mp4, Buffer.alloc(15_000_000)]) }]) {
+      const { gh, state } = await seed()
+      await publishVideo(gh, 7, 'sha1', bad)
+      expect(state.uploads).toHaveLength(0)
+      expect(extractDecision(state.comments.get(MARKER)!)?.video).toEqual({ state: 'failed', reason: 'el video no pasó la validación' })
+    }
+  })
+  it('uploadEvidence lanza → failed con "no se pudo subir el video"', async () => {
+    const { gh, state } = await seed()
+    state.uploadFails = true
+    expect(await publishVideo(gh, 7, 'sha1', ok)).toBe('updated')
+    expect(extractDecision(state.comments.get(MARKER)!)?.video).toEqual({ state: 'failed', reason: 'no se pudo subir el video' })
+  })
+  it('después de approveCheck conserva "Aprobado por @x"', async () => {
+    const { gh, state } = await seed()
+    await approveCheck(gh, 7, { action: 'labeled', actor: 'avarajar', label: LABELS.approved }, ['avarajar'])
+    await publishVideo(gh, 7, 'sha1', ok)
+    const body = state.comments.get(MARKER)!
+    expect(body).toContain('Aprobado por @avarajar')
+    expect(extractDecision(body)?.video?.state).toBe('ready')
   })
 })
