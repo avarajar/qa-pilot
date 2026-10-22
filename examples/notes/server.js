@@ -40,7 +40,7 @@ const page = (title, body) => `<!doctype html>
   label { display: block; margin: 12px 0 4px; }
   input { font: inherit; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); }
   button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); cursor: pointer; }
-  button.danger { background: transparent; color: var(--danger); border-color: var(--danger); padding: 4px 10px; }
+  button.danger { background: var(--danger); color: var(--bg); border-color: var(--danger); padding: 4px 10px; }
   ul { list-style: none; padding: 0; } li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .muted { color: var(--muted); } .error { color: var(--danger); }
   header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
