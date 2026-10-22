@@ -158,7 +158,11 @@ jobs:
         run: qa-pilot publish --root "$ROOT" --out "$ROOT/qa-results"
       - name: ¿Hace falta video?
         id: video
-        run: echo "wanted=$(qa-pilot video wanted --root "$ROOT" --out "$ROOT/qa-results")" >> "$GITHUB_OUTPUT"
+        # checks cancelado: llegó un push nuevo y su corrida trae su propio video
+        env: { CHECKS: '${{ needs.checks.result }}' }
+        run: |
+          if [ "$CHECKS" = cancelled ]; then echo wanted=false >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "wanted=$(qa-pilot video wanted --root "$ROOT" --out "$ROOT/qa-results")" >> "$GITHUB_OUTPUT"
       # la decisión ya calculada con la base, para los jobs de video
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         id: decision
@@ -215,6 +219,8 @@ jobs:
       LABELED: "${{ github.event.action == 'labeled' }}"
     outputs:
       off: '${{ steps.enabled.outputs.off }}'
+      # 'true' si video source no encontró la corrida (decisión de otro commit, sin comentario o sin resultados)
+      source-failed: '${{ steps.source.outputs.failed }}'
       script: '${{ steps.script.outputs.artifact-id }}'
       # la de publish o, en el camino labeled, la que sube este job
       decision: '${{ steps.decision.outputs.artifact-id || needs.publish.outputs.decision }}'
@@ -245,7 +251,7 @@ jobs:
         if: env.LABELED == 'true' && steps.enabled.outputs.off != 'true'
         env: { GITHUB_TOKEN: '${{ github.token }}' }
         run: |
-          run="$(qa-pilot video source --root "$ROOT" --out "$RUNNER_TEMP/source")"
+          run="$(qa-pilot video source --root "$ROOT" --out "$RUNNER_TEMP/source")" || { echo failed=true >> "$GITHUB_OUTPUT"; exit 1; }
           echo "run=$run" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         if: env.LABELED == 'true' && steps.enabled.outputs.off != 'true'
@@ -259,6 +265,10 @@ jobs:
         if: env.LABELED != 'true'
         continue-on-error: true
         with: { name: qa-results, path: '${{ env.OUT }}' }
+      - name: Quitar la decisión que trae el PR
+        # el artifact qa-results lo escribe el código del PR: si no llega la de publish, que no quede esta
+        if: env.LABELED != 'true'
+        run: rm -f "$OUT/decision.json"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         if: env.LABELED != 'true' && needs.publish.outputs.decision != ''
         with: { artifact-ids: '${{ needs.publish.outputs.decision }}', path: '${{ env.OUT }}' }
@@ -358,12 +368,16 @@ jobs:
           GITHUB_TOKEN: '${{ github.token }}'
           LABELED: "${{ github.event.action == 'labeled' }}"
           SCRIPT: '${{ needs.video-script.result }}'
+          SOURCE_FAILED: '${{ needs.video-script.outputs.source-failed }}'
           RENDER: '${{ needs.video-render.result }}'
+        # con el label, si la decisión no es de este commit (o no hay), el CLI deja además un aviso aparte en el PR
         run: |
           reason=''
-          if [ "$LABELED" = true ] && [ "$SCRIPT" != success ]; then
+          if [ "$LABELED" = true ] && [ "$SOURCE_FAILED" = true ]; then
             reason='no están los resultados de esa corrida (vencieron o llegó un commit nuevo)'
-          elif [ "$SCRIPT" = success ] && [ "$RENDER" != success ]; then
+          elif [ "$SCRIPT" != success ]; then
+            reason='no se pudo preparar el guion'
+          elif [ "$RENDER" != success ]; then
             reason='el render falló o se pasó del tiempo'
           fi
           args=()
