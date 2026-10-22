@@ -65,7 +65,7 @@ export const isElements = (e: unknown): e is string[] =>
 // dentro de una celda de la tabla: escapado y sin romper columnas
 const cellText = (s: string) => esc(s).replace(/\|/g, '\\|')
 
-function changeText(snap: Snapshot): string {
+export function changeText(snap: Snapshot): string {
   const c = snap.change
   if (!isChange(c)) return ''
   const amount = `${c.percent < 0.1 ? 'menos de 0,1 %' : `${String(c.percent).replace('.', ',')} %`} de la captura (${c.pixels} ${c.pixels === 1 ? 'píxel' : 'píxeles'})`

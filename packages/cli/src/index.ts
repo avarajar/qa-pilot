@@ -4,5 +4,6 @@ export { loadContract, ConfigError, videoProject, parseJourneys } from './config
 export { route, readResults } from './router.js'
 export { ingest } from './ingest.js'
 export { parseTimeline } from './timeline.js'
+export { journeyStatuses, planVideo, previewPlan } from './video-plan.js'
 export { parseDiff, gitDiff } from './diff.js'
 export type * from './types.js'
