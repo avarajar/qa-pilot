@@ -7,11 +7,11 @@ import { ingest, type IngestTool } from './ingest.js'
 import { readResults, route } from './router.js'
 import type { Decision, QaConfig } from './types.js'
 import { restGitHub } from './github.js'
-import { publish, approveCheck, MAX_IMAGE_BYTES } from './publish.js'
+import { publish, approveCheck, wantsVideo, MAX_IMAGE_BYTES } from './publish.js'
 import { prFromEvent, approvalFromEvent } from './events.js'
 import { claudeDescriber } from './describe.js'
 
-function githubContext(io: Io): { gh: ReturnType<typeof restGitHub>; event: unknown } | null {
+export function githubContext(io: Io): { gh: ReturnType<typeof restGitHub>; event: unknown } | null {
   const { GITHUB_TOKEN: token, GITHUB_REPOSITORY: repo, GITHUB_EVENT_PATH: eventPath, GITHUB_API_URL: api, GITHUB_SERVER_URL: web } = process.env
   if (!token || !repo || !eventPath) {
     io.err('Faltan GITHUB_TOKEN, GITHUB_REPOSITORY o GITHUB_EVENT_PATH: este comando corre dentro de GitHub Actions')
@@ -30,6 +30,7 @@ Comandos:
   route          decide sobre los resultados ya generados en qa-results/
   ingest <tool> <archivo>   normaliza junit | semgrep | gitleaks
   publish        publica la decisión en el PR (GitHub)
+  video <wanted|source|script|render|publish>   video de QA del PR (wanted/source/publish usan GitHub; render necesita @qa-pilot/video)
   approve-check  valida una aprobación humana (GitHub)
   baselines      regenera las imágenes base de screenshots en Linux (Docker)
   config get <clave>        imprime un valor de qa/qa-pilot.yaml
@@ -120,7 +121,7 @@ const commands: Record<string, Handler> = {
 }
 
 commands.publish = async (args, io) => {
-  const { out } = parse(args)
+  const { root, out } = parse(args)
   const ctx = githubContext(io)
   if (!ctx) return 1
   const pr = prFromEvent(ctx.event)
@@ -132,7 +133,10 @@ commands.publish = async (args, io) => {
   const describe = process.env.ANTHROPIC_API_KEY
     ? claudeDescriber({ ...(process.env.QA_PILOT_AI_MODEL ? { model: process.env.QA_PILOT_AI_MODEL } : {}) })
     : undefined
-  await publish(ctx.gh, pr, d, { readImage: path => readImage(out, path), ...(describe ? { describe } : {}) })
+  // el video se lee de la config de la rama base; si el contrato no carga, se publica sin video
+  let video = false
+  try { video = wantsVideo(d, loadContract(root).config) } catch { /* la decisión no se bloquea */ }
+  await publish(ctx.gh, pr, d, { readImage: path => readImage(out, path), ...(describe ? { describe } : {}), ...(video ? { video } : {}) })
   io.out(`PR #${pr}: ${d.decision}`)
   return 0
 }

@@ -3,7 +3,7 @@ import type { ApprovalEvent } from './publish.js'
 type Event = {
   action?: string
   number?: number
-  pull_request?: { number?: number }
+  pull_request?: { number?: number; title?: unknown }
   issue?: { number?: number; pull_request?: unknown }
   label?: { name?: string }
   comment?: { id?: number; body?: string; user?: { login?: string } }
@@ -15,6 +15,12 @@ export function prFromEvent(raw: unknown): number | null {
   if (ev.pull_request?.number) return ev.pull_request.number
   if (ev.issue?.pull_request && ev.issue.number) return ev.issue.number
   return null
+}
+
+// el título lo escribe quien abre el PR: solo texto y acotado
+export function prTitleFromEvent(raw: unknown): string {
+  const t = (raw as Event)?.pull_request?.title
+  return typeof t === 'string' ? t.slice(0, 200) : ''
 }
 
 export function approvalFromEvent(raw: unknown): ApprovalEvent | null {

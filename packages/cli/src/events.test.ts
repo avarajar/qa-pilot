@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { prFromEvent, approvalFromEvent } from './events.js'
+import { prFromEvent, prTitleFromEvent, approvalFromEvent } from './events.js'
 
 describe('eventos de GitHub', () => {
   it('pull_request: número de PR y etiqueta aplicada', () => {
@@ -17,5 +17,11 @@ describe('eventos de GitHub', () => {
   })
   it('otra acción → sin aprobación', () => {
     expect(approvalFromEvent({ action: 'synchronize', pull_request: { number: 1 }, sender: { login: 'x' } })).toBeNull()
+  })
+  it('título del PR: del evento, acotado a 200; sin título → vacío', () => {
+    expect(prTitleFromEvent({ pull_request: { number: 1, title: 'Notas' } })).toBe('Notas')
+    expect(prTitleFromEvent({ pull_request: { number: 1, title: 'x'.repeat(500) } })).toHaveLength(200)
+    expect(prTitleFromEvent({ pull_request: { number: 1, title: 7 } })).toBe('')
+    expect(prTitleFromEvent({})).toBe('')
   })
 })

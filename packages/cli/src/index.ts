@@ -1,4 +1,5 @@
 import './commands.js'
+import './video-commands.js'
 export { main, decide, summarize, expectedChecks } from './cli.js'
 export { loadContract, ConfigError, videoProject, parseJourneys } from './config.js'
 export { route, readResults } from './router.js'
