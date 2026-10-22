@@ -111,8 +111,10 @@ const sub: Record<string, (a: string[], io: Io) => Promise<number>> = {
   async render(a, io) {
     const { out } = args(a)
     let mod: { render: RenderFn }
-    try { mod = await importer() } catch {
-      io.err('instala @qa-pilot/video para generar videos')
+    try { mod = await importer() } catch (e) {
+      // solo si falta el paquete se pide instalarlo; cualquier otro error se muestra tal cual
+      const missing = (e as { code?: string }).code === 'ERR_MODULE_NOT_FOUND' || /Cannot find (package|module)/.test(String((e as Error).message))
+      io.err(missing ? 'instala @qa-pilot/video para generar videos' : `No se pudo cargar @qa-pilot/video: ${(e as Error).message}`)
       return 1
     }
     const [plan, facts, script] = ['plan', 'facts', 'script'].map(n => readJson(join(out, 'video', `${n}.json`)))
@@ -128,7 +130,9 @@ const sub: Record<string, (a: string[], io: Io) => Promise<number>> = {
     if (!ctx) return 1
     const pr = prFromEvent(ctx.event)
     if (!pr) { io.err('El evento no es de un pull request'); return 1 }
-    return videoPublish(ctx.gh, pr, out, reason, io)
+    const ev = obj(ctx.event) ? ctx.event : {}
+    const label = ev.action === 'labeled' && obj(ev.label) && typeof ev.label.name === 'string' ? ev.label.name : undefined
+    return videoPublish(ctx.gh, pr, out, reason, io, label)
   },
 }
 
@@ -140,19 +144,26 @@ function readFile(file: string): Buffer | null {
   } catch { return null }
 }
 
-export async function videoPublish(gh: GitHub, pr: number, out: string, reason: string | undefined, io: Io): Promise<number> {
+// label: el evento fue poner ese label; si la decisión no es del head (o no hay), el PR recibe un aviso aparte
+export async function videoPublish(gh: GitHub, pr: number, out: string, reason: string | undefined, io: Io, label?: string): Promise<number> {
   const sha = readDecision(out)?.sha ?? (await gh.getPr(pr)).headSha
   const failed = { failed: reason?.slice(0, 200) || 'no se pudo generar el video' }
+  const done = async (r: Awaited<ReturnType<typeof publishVideo>>) => {
+    io.out(r)
+    if (label && r !== 'updated') {
+      await gh.comment(pr, `qa-pilot: el label ${label} llegó antes de que terminara la corrida de este commit; quítalo y vuelve a ponerlo cuando salga la decisión.`)
+    }
+    return 0
+  }
   // con --reason el render no terminó bien: lo que haya en video/ no es de fiar y no se publica
-  if (reason) { io.out(await publishVideo(gh, pr, sha, failed)); return 0 }
+  if (reason) return done(await publishVideo(gh, pr, sha, failed))
   const dir = join(out, 'video')
   const mp4 = readFile(join(dir, 'video.mp4'))
   const gif = readFile(join(dir, 'preview.gif'))
   const meta = existsSync(join(dir, 'video.json')) ? readJson(join(dir, 'video.json')) : undefined
   const seconds = obj(meta) && typeof meta.seconds === 'number' && Number.isFinite(meta.seconds) ? meta.seconds : null
   const files = mp4 && gif && seconds !== null ? { mp4, gif, seconds } : failed
-  io.out(await publishVideo(gh, pr, sha, files))
-  return 0
+  return done(await publishVideo(gh, pr, sha, files))
 }
 
 register('video', async (a, io) => {

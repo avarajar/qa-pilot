@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { main } from './cli.js'
@@ -88,6 +88,20 @@ describe('qa-pilot video render', () => {
     expect(await main(['video', 'render', '--root', root, '--out', out], c.io)).toBe(1)
     expect(c.err).toEqual(['instala @qa-pilot/video para generar videos'])
   })
+  it('otro error al importar → 1 con el error real', async () => {
+    const { root, out } = project(true)
+    setVideoImporter(async () => { throw new SyntaxError('Unexpected token export') })
+    const c = capture()
+    expect(await main(['video', 'render', '--root', root, '--out', out], c.io)).toBe(1)
+    expect(c.err).toEqual(['No se pudo cargar @qa-pilot/video: Unexpected token export'])
+  })
+  it('ERR_MODULE_NOT_FOUND → el mensaje de instalar', async () => {
+    const { root, out } = project(true)
+    setVideoImporter(async () => { throw Object.assign(new Error("Cannot find module '/x/@qa-pilot/video/dist/index.js'"), { code: 'ERR_MODULE_NOT_FOUND' }) })
+    const c = capture()
+    expect(await main(['video', 'render', '--root', root, '--out', out], c.io)).toBe(1)
+    expect(c.err).toEqual(['instala @qa-pilot/video para generar videos'])
+  })
   it('con el paquete llama a render con los tres JSON', async () => {
     const { root, out } = project(true)
     mkdirSync(join(out, 'video'))
@@ -102,13 +116,15 @@ describe('qa-pilot video render', () => {
 describe('qa-pilot video publish', () => {
   function gh(comment: string | null) {
     const calls: string[] = []
+    const notes: string[] = []
     const g = {
       getPr: async (n: number) => ({ number: n, headSha: 'sha1', labels: [], nodeId: 'x' }),
       findComment: async () => comment,
       upsertComment: async (_n: number, _m: string, body: string) => { calls.push(body) },
       uploadEvidence: async () => 'https://x/raw/c/',
+      comment: async (_n: number, body: string) => { notes.push(body) },
     } as unknown as GitHub
-    return { g, calls }
+    return { g, calls, notes }
   }
   it('sin archivos → publishVideo con failed y el motivo', async () => {
     const { out } = project(true)
@@ -130,6 +146,30 @@ describe('qa-pilot video publish', () => {
     const c = capture()
     expect(await videoPublish(g, 7, out, undefined, c.io)).toBe(0)
     expect(c.out).toEqual(['stale'])
+  })
+  it('label con la decisión de otro commit → aviso aparte en el PR', async () => {
+    const { out } = project(true)
+    rmSync(join(out, 'decision.json'))
+    const { g, calls, notes } = gh(renderComment(decision({ sha: 'viejo' })))
+    const c = capture()
+    expect(await videoPublish(g, 7, out, 'no están los resultados', c.io, 'qa-video')).toBe(0)
+    expect(c.out).toEqual(['stale'])
+    expect(calls).toEqual([])
+    expect(notes).toEqual(['qa-pilot: el label qa-video llegó antes de que terminara la corrida de este commit; quítalo y vuelve a ponerlo cuando salga la decisión.'])
+  })
+  it('label sin comentario de decisión → el mismo aviso', async () => {
+    const { out } = project(true)
+    const { g, notes } = gh(null)
+    const c = capture()
+    await videoPublish(g, 7, out, 'no están los resultados', c.io, 'qa-video')
+    expect(c.out).toEqual(['missing'])
+    expect(notes).toHaveLength(1)
+  })
+  it('camino normal stale → sin aviso', async () => {
+    const { out } = project(true, decision({ sha: 'viejo' }))
+    const { g, notes } = gh(renderComment(decision()))
+    await videoPublish(g, 7, out, undefined, capture().io)
+    expect(notes).toEqual([])
   })
   it('con archivos válidos los sube y usa seconds de video.json', async () => {
     const { out } = project(true)
