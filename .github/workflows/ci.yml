@@ -22,3 +22,22 @@ jobs:
       - name: Tests
         # el render real de packages/video baja Chrome: solo corre con QA_PILOT_RENDER_TEST=1
         run: pnpm -r test
+
+  render:
+    # render real con Remotion (spec §9): mp4 válido con la duración esperada. Misma imagen que el job
+    # video-render de qa.yml, que trae las librerías de Chrome y fuentes para ✓ ⚠ ✗. Sin secretos
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.63.0-noble
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '22' }
+      - name: Instalar
+        run: corepack enable && pnpm install --frozen-lockfile
+      - name: Compilar
+        run: pnpm --filter qa-pilot --filter @qa-pilot/video build
+      - name: Render
+        env: { QA_PILOT_RENDER_TEST: '1' }
+        run: pnpm --filter @qa-pilot/video test render

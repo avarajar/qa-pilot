@@ -94,7 +94,9 @@ jobs:
             curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
           fi
       - name: Video según la rama base
-        # video.enabled sale de la base: el PR no puede prender ni apagar la grabación para sí mismo
+        # video.enabled sale de la base: el PR no puede prender ni apagar la grabación para sí mismo.
+        # Si este paso falla, el video queda apagado y la decisión sigue igual
+        continue-on-error: true
         env: { BASE_SHA: '${{ github.event.pull_request.base.sha }}' }
         run: |
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
@@ -121,7 +123,10 @@ jobs:
     timeout-minutes: 10
     permissions: { contents: write, pull-requests: write, issues: write, statuses: write }
     env: { ROOT: '${{ inputs.root }}' }
-    outputs: { video: '${{ steps.video.outputs.wanted }}' }
+    outputs:
+      video: '${{ steps.video.outputs.wanted }}'
+      # los jobs de video bajan por id: checks corre código del PR y podría subir artifacts con el mismo nombre
+      decision: '${{ steps.decision.outputs.artifact-id }}'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: '${{ github.event.pull_request.base.sha }}', fetch-depth: 0 }
@@ -156,10 +161,12 @@ jobs:
         run: echo "wanted=$(qa-pilot video wanted --root "$ROOT" --out "$ROOT/qa-results")" >> "$GITHUB_OUTPUT"
       # la decisión ya calculada con la base, para los jobs de video
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: decision
         if: steps.video.outputs.wanted == 'true'
         with:
           name: qa-decision
           retention-days: 14
+          overwrite: true
           path: ${{ inputs.root }}/qa-results/decision.json
 
   approval:
@@ -199,13 +206,18 @@ jobs:
       (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == inputs.video-label))
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # con la clave: solo lee JSON y texto, sin Chrome ni video. pull-requests: read para que video source lea el PR
-    permissions: { contents: read, actions: read, pull-requests: read }
+    # con la clave: solo lee JSON y texto, sin Chrome ni video. pull-requests e issues: read para que
+    # video source lea el PR y el comentario de la decisión en repos privados
+    permissions: { contents: read, actions: read, pull-requests: read, issues: read }
     env:
       ROOT: '${{ inputs.root }}'
       OUT: '${{ inputs.root }}/qa-results'
       LABELED: "${{ github.event.action == 'labeled' }}"
-    outputs: { off: '${{ steps.enabled.outputs.off }}' }
+    outputs:
+      off: '${{ steps.enabled.outputs.off }}'
+      script: '${{ steps.script.outputs.artifact-id }}'
+      # la de publish o, en el camino labeled, la que sube este job
+      decision: '${{ steps.decision.outputs.artifact-id || needs.publish.outputs.decision }}'
     steps:
       # qa/ de la rama base: journeys y video.enabled nunca salen del PR
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -248,8 +260,8 @@ jobs:
         continue-on-error: true
         with: { name: qa-results, path: '${{ env.OUT }}' }
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: env.LABELED != 'true'
-        with: { name: qa-decision, path: '${{ env.OUT }}' }
+        if: env.LABELED != 'true' && needs.publish.outputs.decision != ''
+        with: { artifact-ids: '${{ needs.publish.outputs.decision }}', path: '${{ env.OUT }}' }
       - name: Guion
         if: steps.enabled.outputs.off != 'true'
         # sin clave, o si Claude falla, el guion sale de una plantilla
@@ -266,22 +278,26 @@ jobs:
             if [[ "$f" =~ ^artifacts/[A-Za-z0-9._-]+\.(webm|png)$ ]] && [ -f "$OUT/$f" ] && [ ! -L "$OUT/$f" ]; then cp "$OUT/$f" "$stage/$f"; fi
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: script
         if: steps.enabled.outputs.off != 'true'
-        with: { name: qa-video-script, retention-days: 1, path: '${{ runner.temp }}/video-script' }
+        with: { name: qa-video-script, retention-days: 1, overwrite: true, path: '${{ runner.temp }}/video-script' }
       # en el camino labeled publish no corrió: video-publish toma el SHA de esta decisión
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: decision
         if: env.LABELED == 'true' && steps.enabled.outputs.off != 'true'
-        with: { name: qa-decision, retention-days: 14, path: '${{ env.OUT }}/decision.json' }
+        with: { name: qa-decision, retention-days: 14, overwrite: true, path: '${{ env.OUT }}/decision.json' }
 
   video-render:
     # abre contenido del PR (clips e imágenes) con Chrome: sin secretos y solo lectura
     needs: video-script
-    if: needs.video-script.outputs.off != 'true'
+    # explícito: el success() implícito mira también publish y checks, que se saltan con el label
+    if: ${{ !cancelled() && needs.video-script.result == 'success' && needs.video-script.outputs.off != 'true' }}
     runs-on: ubuntu-latest
     # la imagen del preset de Playwright trae las librerías de Chrome y fuentes para ✓ ⚠ ✗
     container: mcr.microsoft.com/playwright:v1.63.0-noble
     timeout-minutes: 15
     permissions: { contents: read }
+    outputs: { video: '${{ steps.video.outputs.artifact-id }}' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { repository: avarajar/qa-pilot, ref: '${{ inputs.qa-pilot-ref }}', path: .qa-pilot, persist-credentials: false }
@@ -296,13 +312,15 @@ jobs:
           mkdir -p .qa-pilot/node_modules/@qa-pilot
           ln -sfn ../../packages/video .qa-pilot/node_modules/@qa-pilot/video
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with: { name: qa-video-script, path: qa-video }
+        with: { artifact-ids: '${{ needs.video-script.outputs.script }}', path: qa-video }
       - name: Render
         run: qa-pilot video render --out qa-video
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: video
         with:
           name: qa-video
           retention-days: 14
+          overwrite: true
           path: |
             qa-video/video/video.mp4
             qa-video/video/preview.gif
@@ -325,14 +343,17 @@ jobs:
           corepack enable
           (cd .qa-pilot && pnpm install --frozen-lockfile && pnpm --filter qa-pilot build)
           npm link ./.qa-pilot/packages/cli
+      # por id, nunca por nombre; y el video solo si el render terminó bien
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.video-script.outputs.decision != ''
         continue-on-error: true
-        with: { name: qa-decision, path: qa-results }
+        with: { artifact-ids: '${{ needs.video-script.outputs.decision }}', path: qa-results }
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.video-render.result == 'success' && needs.video-render.outputs.video != ''
         continue-on-error: true
-        with: { name: qa-video, path: qa-results/video }
+        with: { artifact-ids: '${{ needs.video-render.outputs.video }}', path: qa-results/video }
       - name: Publicar el video
-        # sin video el comentario dice que no se pudo y por qué; la decisión no cambia
+        # sin video el comentario dice que no se pudo y por qué; con --reason no se publica ningún archivo
         env:
           GITHUB_TOKEN: '${{ github.token }}'
           LABELED: "${{ github.event.action == 'labeled' }}"
