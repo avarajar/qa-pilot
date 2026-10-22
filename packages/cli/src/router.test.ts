@@ -177,6 +177,7 @@ describe('readResults', () => {
     writeFileSync(join(dir, 'e2e.json'), JSON.stringify(pass('e2e')))
     writeFileSync(join(dir, 'unit.json'), '{roto')
     writeFileSync(join(dir, 'decision.json'), '{}')
+    writeFileSync(join(dir, 'timeline.json'), JSON.stringify({ version: 1, journeys: [] }))
     const { results, errors } = readResults(dir)
     expect(results.map(r => r.check)).toEqual(['e2e'])
     expect(errors).toEqual(['unit.json: JSON inválido'])

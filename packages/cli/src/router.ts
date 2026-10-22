@@ -44,7 +44,8 @@ export function readResults(dir: string): { results: CheckResult[]; errors: stri
   const errors: string[] = []
   let names: string[] = []
   try {
-    names = readdirSync(dir).filter(n => n.endsWith('.json') && n !== 'decision.json').sort()
+    // decision.json y timeline.json (video) no son resultados de un check
+    names = readdirSync(dir).filter(n => n.endsWith('.json') && n !== 'decision.json' && n !== 'timeline.json').sort()
   } catch {
     return { results, errors }
   }
