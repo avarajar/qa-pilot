@@ -133,6 +133,10 @@ describe('journeyStatuses', () => {
     const s = journeyStatuses(d, tl(entry(1), entry(2), entry(3), entry(4, { status: 'failed' })))
     expect([...s]).toEqual([['J1', 'pass'], ['J2', 'changed'], ['J3', 'failed'], ['J4', 'failed']])
   })
+  it('un test que Playwright marca fallido solo por la captura queda como cambió', () => {
+    const s = journeyStatuses(dec([visual('J1')]), tl(entry(1, { status: 'failed' })))
+    expect([...s]).toEqual([['J1', 'changed']])
+  })
 })
 
 describe('previewPlan', () => {

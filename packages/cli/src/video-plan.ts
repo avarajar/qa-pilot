@@ -13,8 +13,10 @@ export function journeyStatuses(d: Decision, t: Timeline): Map<string, JourneySt
   const out = new Map<string, JourneyStatus>()
   const ids = new Set([...t.entries.map(e => e.journey), ...d.findings.flatMap(f => f.journey ?? [])])
   for (const j of [...ids].sort((a, b) => num(a) - num(b))) {
-    const failed = d.findings.some(f => f.journey === j && FAIL_KINDS.has(f.kind)) || t.entries.some(e => e.journey === j && e.status === 'failed')
-    out.set(j, failed ? 'failed' : d.findings.some(f => f.journey === j && f.kind === 'visual-diff') ? 'changed' : 'pass')
+    const changed = d.findings.some(f => f.journey === j && f.kind === 'visual-diff')
+    // Playwright da por fallido el test cuya única falla es la captura: eso es un cambio, no un fallo
+    const failed = d.findings.some(f => f.journey === j && FAIL_KINDS.has(f.kind)) || (!changed && t.entries.some(e => e.journey === j && e.status === 'failed'))
+    out.set(j, failed ? 'failed' : changed ? 'changed' : 'pass')
   }
   return out
 }
