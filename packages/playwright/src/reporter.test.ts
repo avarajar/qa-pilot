@@ -171,6 +171,18 @@ describe('timeline', () => {
     expect(e.status).toBe('failed')
     expect(e.marks).toContainEqual({ kind: 'failure', atMs: 3000 })
   })
+  it('test fallido → la marca failure va al inicio del paso más profundo con error', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    const steps = [
+      { title: 'page.goto(/notes)', startTime: new Date(t0 + 500), category: 'pw:api', steps: [] },
+      { title: 'lista', startTime: new Date(t0 + 1000), category: 'test.step', error: { message: 'x' }, steps: [
+        { title: 'page.click', startTime: new Date(t0 + 1100), category: 'pw:api', steps: [] },
+        { title: 'expect(locator).toHaveCount(4)', startTime: new Date(t0 + 1200), category: 'expect', error: { message: 'x' }, steps: [] },
+      ] },
+    ]
+    const e = timelineEntry(tc('entra', 'unexpected', ['@J1']), rec('failed', [video(out)], { steps }), copyTo(out))!
+    expect(e.marks).toContainEqual({ kind: 'failure', atMs: 1200 })
+  })
   it('acota marcas a 20 con la failure incluida, pasos a 50 y títulos a 120', () => {
     const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
     const steps = Array.from({ length: 70 }, (_, i) => ({ title: `expect.soft(page).toHaveScreenshot(s${i}.png) ${'x'.repeat(200)}`, startTime: new Date(t0 + i), category: 'expect' }))

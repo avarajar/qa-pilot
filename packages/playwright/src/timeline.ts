@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs'
 import { basename } from 'node:path'
-import type { TestCase, TestResult } from '@playwright/test/reporter'
+import type { TestCase, TestResult, TestStep } from '@playwright/test/reporter'
 import type { TimelineEntry } from 'qa-pilot'
 
 const MAX_CLIP_BYTES = 20 * 1024 * 1024
@@ -10,6 +10,12 @@ const MAX_MARKS = 20
 const MAX_TEXT = 120
 const SNAP = /toHaveScreenshot\(([^)]+?)\.png\)/
 let seq = 0
+
+// el paso más profundo con error: ahí se rompió el test
+function failingStep(steps: TestStep[]): TestStep | undefined {
+  const s = steps.find(x => x.error)
+  return s ? failingStep(s.steps ?? []) ?? s : undefined
+}
 
 // la entrada de timeline de un test con video: pasos y marcas en ms desde que arrancó
 // copy deja el clip en artifacts/ y devuelve su ruta relativa (o null si no pudo)
@@ -37,6 +43,8 @@ export function timelineEntry(test: TestCase, result: TestResult, copy: (src: st
   const failed = result.status !== 'passed'
   // tope de 20 marcas contando la failure, que va siempre
   marks.splice(failed ? MAX_MARKS - 1 : MAX_MARKS)
-  if (failed) marks.push({ kind: 'failure', atMs: result.duration })
+  // sin un paso con error (p. ej. timeout del test), la marca va al final
+  const broke = failed ? failingStep(result.steps) : undefined
+  if (failed) marks.push({ kind: 'failure', atMs: broke ? Math.min(at(broke.startTime), result.duration) : result.duration })
   return { journey, title: test.title, project, status: failed ? 'failed' : 'passed', video, durationMs: result.duration, steps: steps.slice(0, MAX_STEPS), marks }
 }
