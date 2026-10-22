@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PNG } from 'pngjs'
 import QaReporter, { classify } from './reporter.js'
+import { timelineEntry } from './timeline.js'
 
 type Fake = Parameters<typeof classify>[0]
 
@@ -142,5 +143,61 @@ describe('QaReporter', () => {
       r.onEnd({ status } as never)
       expect(JSON.parse(readFileSync(join(out, 'e2e.json'), 'utf8')).status).toBe('fail')
     }
+  })
+})
+
+describe('timeline', () => {
+  const t0 = 1_000_000
+  const video = (out: string, size = 10) => { const path = join(out, 'src.webm'); writeFileSync(path, Buffer.alloc(size)); return { name: 'video', path } }
+  const rec = (status: string, attachments: unknown[], extra: Record<string, unknown> = {}) =>
+    ({ status, errors: [], attachments, retry: 0, startTime: new Date(t0), duration: 3000, steps: [
+      { title: 'page.goto(/notes)', startTime: new Date(t0 + 500), category: 'pw:api' },
+      { title: 'expect.soft(page).toHaveScreenshot(notas-light.png)', startTime: new Date(t0 + 2000), category: 'expect' },
+      { title: 'Before Hooks', startTime: new Date(t0), category: 'hook' },
+    ], ...extra }) as unknown as Parameters<typeof classify>[1]
+  const copyTo = (out: string) => (src: string, name: string) => { writeFileSync(join(out, name), readFileSync(src)); return `artifacts/${name}` }
+
+  it('@J1 con adjunto video → entrada con pasos y marcas', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    const e = timelineEntry(tc('entra', 'expected', ['@J1'], 'admin-desktop'), rec('passed', [video(out)]), copyTo(out))!
+    expect(e.steps).toEqual([{ title: 'page.goto(/notes)', atMs: 500 }, { title: 'expect.soft(page).toHaveScreenshot(notas-light.png)', atMs: 2000 }])
+    expect(e.marks).toEqual([{ kind: 'snap', name: 'notas-light', atMs: 2000 }])
+    expect(e.video).toMatch(/^artifacts\/video-admin-desktop-j1-\d+\.webm$/)
+    expect(e).toMatchObject({ journey: 'J1', title: 'entra', project: 'admin-desktop', status: 'passed', durationMs: 3000 })
+  })
+  it('test fallido → marca failure al final', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    const e = timelineEntry(tc('entra', 'unexpected', ['@J1']), rec('failed', [video(out)]), copyTo(out))!
+    expect(e.status).toBe('failed')
+    expect(e.marks).toContainEqual({ kind: 'failure', atMs: 3000 })
+  })
+  it('sin adjunto video o sin @J → null', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    expect(timelineEntry(tc('entra', 'expected', ['@J1']), rec('passed', []), copyTo(out))).toBeNull()
+    expect(timelineEntry(tc('entra', 'expected'), rec('passed', [video(out)]), copyTo(out))).toBeNull()
+  })
+  it('clip de más de 20 MB → null', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    const path = join(out, 'big.webm')
+    writeFileSync(path, Buffer.alloc(20 * 1024 * 1024 + 1))
+    expect(timelineEntry(tc('entra', 'expected', ['@J1']), rec('passed', [{ name: 'video', path }]), copyTo(out))).toBeNull()
+  })
+  it('onEnd escribe timeline.json ordenado por journey y con el último intento', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    const withId = (id: string, title: string, tag: string) => ({ ...tc(title, 'flaky', [tag], 'admin-desktop'), id }) as unknown as Fake
+    const r = new QaReporter({ outputDir: out })
+    const j2 = withId('b', 'segundo', '@J2'), j1 = withId('a', 'primero', '@J1')
+    r.onTestEnd(j2, rec('passed', [video(out)]))
+    r.onTestEnd(j1, rec('failed', [video(out)], { retry: 0 }))
+    r.onTestEnd(j1, rec('passed', [video(out)], { retry: 1 }))
+    r.onEnd()
+    const tl = JSON.parse(readFileSync(join(out, 'timeline.json'), 'utf8'))
+    expect(tl.version).toBe(1)
+    expect(tl.entries.map((e: { journey: string; status: string }) => [e.journey, e.status])).toEqual([['J1', 'passed'], ['J2', 'passed']])
+  })
+  it('onEnd escribe timeline.json aunque no haya entradas', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    new QaReporter({ outputDir: out }).onEnd()
+    expect(JSON.parse(readFileSync(join(out, 'timeline.json'), 'utf8'))).toEqual({ version: 1, entries: [] })
   })
 })

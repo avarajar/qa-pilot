@@ -1,6 +1,8 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
+import type { TimelineEntry } from 'qa-pilot'
+import { timelineEntry } from './timeline.js'
 import { describeDiff, elementsInZone, markChange, type PageElement } from './visual.js'
 
 type Finding = {
@@ -76,6 +78,7 @@ function pageElements(result: TestResult, stem: string): PageElement[] {
 export default class QaReporter implements Reporter {
   private findings: Finding[] = []
   private executed = 0
+  private timeline = new Map<string, TimelineEntry>()
   private outputDir: string
 
   constructor(opts: { outputDir?: string } = {}) {
@@ -86,6 +89,10 @@ export default class QaReporter implements Reporter {
     if (result.status !== 'skipped') this.executed++
     // con reintentos llegan varios resultados; solo cuenta el último
     if (test.outcome() === 'unexpected' && result.retry < test.retries && result.status !== 'passed') return
+    // un test con video deja su entrada; el último intento reemplaza al anterior
+    const entry = timelineEntry(test, result, (src, name) => this.copyClip(src, name))
+    if (entry) this.timeline.set(test.id || `${entry.project}/${test.title}`, entry)
+    else this.timeline.delete(test.id || `${test.parent.project()?.name}/${test.title}`)
     for (const f of classify(test, result)) {
       if (f.kind === 'visual-diff') {
         const images = this.copySnapshots(test, result)
@@ -94,6 +101,16 @@ export default class QaReporter implements Reporter {
         if (diff) f.artifact = diff
       }
       this.findings.push(f)
+    }
+  }
+
+  private copyClip(src: string, name: string): string | null {
+    try {
+      mkdirSync(join(this.outputDir, 'artifacts'), { recursive: true })
+      copyFileSync(src, join(this.outputDir, 'artifacts', name))
+      return `artifacts/${name}`
+    } catch {
+      return null
     }
   }
 
@@ -140,6 +157,8 @@ export default class QaReporter implements Reporter {
     const status = blocking ? 'fail' : this.findings.length ? 'warn' : 'pass'
     mkdirSync(this.outputDir, { recursive: true })
     writeFileSync(join(this.outputDir, 'e2e.json'), JSON.stringify({ check: 'e2e', status, findings: this.findings }, null, 2))
+    const entries = [...this.timeline.values()].sort((a, b) => Number(a.journey.slice(1)) - Number(b.journey.slice(1)))
+    writeFileSync(join(this.outputDir, 'timeline.json'), JSON.stringify({ version: 1, entries }, null, 2))
   }
 
   printsToStdio(): boolean {
