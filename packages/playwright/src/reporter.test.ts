@@ -180,6 +180,14 @@ describe('timeline', () => {
     expect(e.steps).toHaveLength(50)
     expect(e.steps[0]!.title).toHaveLength(120)
   })
+  it('con varias páginas usa el video de la primera (video.webm), no el de una página auxiliar', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    // @axe-core/playwright abre una página en blanco: Playwright la adjunta como video-1.webm y a veces primero
+    const aux = join(out, 'video-1.webm'), main = join(out, 'video.webm')
+    writeFileSync(aux, 'aux'); writeFileSync(main, 'main')
+    const e = timelineEntry(tc('entra', 'expected', ['@J1']), rec('passed', [{ name: 'video', path: aux }, { name: 'video', path: main }]), copyTo(out))!
+    expect(readFileSync(join(out, e.video.slice('artifacts/'.length)), 'utf8')).toBe('main')
+  })
   it('sin adjunto video o sin @J → null', () => {
     const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
     expect(timelineEntry(tc('entra', 'expected', ['@J1']), rec('passed', []), copyTo(out))).toBeNull()

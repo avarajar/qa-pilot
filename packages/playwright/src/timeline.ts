@@ -1,4 +1,5 @@
 import { statSync } from 'node:fs'
+import { basename } from 'node:path'
 import type { TestCase, TestResult } from '@playwright/test/reporter'
 import type { TimelineEntry } from 'qa-pilot'
 
@@ -14,7 +15,9 @@ let seq = 0
 // copy deja el clip en artifacts/ y devuelve su ruta relativa (o null si no pudo)
 export function timelineEntry(test: TestCase, result: TestResult, copy: (src: string, name: string) => string | null): TimelineEntry | null {
   const journey = test.tags.find(t => /^@J\d+$/.test(t))?.slice(1)
-  const clip = result.attachments.find(a => a.name === 'video' && a.path)
+  // una página por video; la del test es la primera (video.webm). Otras, como la en blanco de axe, son video-<n>.webm
+  const clips = result.attachments.filter(a => a.name === 'video' && a.path)
+  const clip = clips.find(a => basename(a.path!) === 'video.webm') ?? clips[0]
   if (!journey || !clip?.path || result.status === 'skipped') return null
   try {
     if (statSync(clip.path).size > MAX_CLIP_BYTES) return null
