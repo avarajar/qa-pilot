@@ -171,6 +171,15 @@ describe('timeline', () => {
     expect(e.status).toBe('failed')
     expect(e.marks).toContainEqual({ kind: 'failure', atMs: 3000 })
   })
+  it('acota marcas a 20 con la failure incluida, pasos a 50 y títulos a 120', () => {
+    const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
+    const steps = Array.from({ length: 70 }, (_, i) => ({ title: `expect.soft(page).toHaveScreenshot(s${i}.png) ${'x'.repeat(200)}`, startTime: new Date(t0 + i), category: 'expect' }))
+    const e = timelineEntry(tc('entra', 'unexpected', ['@J1']), rec('failed', [video(out)], { steps }), copyTo(out))!
+    expect(e.marks).toHaveLength(20)
+    expect(e.marks.at(-1)).toEqual({ kind: 'failure', atMs: 3000 })
+    expect(e.steps).toHaveLength(50)
+    expect(e.steps[0]!.title).toHaveLength(120)
+  })
   it('sin adjunto video o sin @J → null', () => {
     const out = mkdtempSync(join(tmpdir(), 'qa-tl-'))
     expect(timelineEntry(tc('entra', 'expected', ['@J1']), rec('passed', []), copyTo(out))).toBeNull()

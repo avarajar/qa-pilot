@@ -10,6 +10,14 @@ const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' 
 const ms = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
 const text = (v: unknown): string | null => (typeof v === 'string' ? v.slice(0, MAX_TEXT) : null)
 
+// al recortar se conserva la marca failure (la que más importa en el video) y las primeras demás
+function capMarks(marks: unknown[]): unknown[] {
+  if (marks.length <= MAX_MARKS) return marks
+  const f = marks.findIndex(m => obj(m) && m.kind === 'failure')
+  if (f < 0) return marks.slice(0, MAX_MARKS)
+  return marks.filter((_, i) => i === f || i < f + (f < MAX_MARKS ? MAX_MARKS - 1 : 0)).slice(0, MAX_MARKS)
+}
+
 function parseEntry(raw: unknown): TimelineEntry | null {
   if (!obj(raw)) return null
   const { journey, title, project, status, video, durationMs, steps, marks } = raw
@@ -25,7 +33,7 @@ function parseEntry(raw: unknown): TimelineEntry | null {
     outSteps.push({ title: st, atMs: s.atMs })
   }
   const outMarks: TimelineEntry['marks'] = []
-  for (const m of marks.slice(0, MAX_MARKS)) {
+  for (const m of capMarks(marks)) {
     if (!obj(m) || (m.kind !== 'snap' && m.kind !== 'failure') || !ms(m.atMs)) return null
     const name = m.name === undefined ? undefined : text(m.name)
     if (name === null) return null

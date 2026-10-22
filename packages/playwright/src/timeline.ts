@@ -4,6 +4,9 @@ import type { TimelineEntry } from 'qa-pilot'
 
 const MAX_CLIP_BYTES = 20 * 1024 * 1024
 const STEP_CATEGORIES = new Set(['test.step', 'pw:api', 'expect'])
+const MAX_STEPS = 50
+const MAX_MARKS = 20
+const MAX_TEXT = 120
 const SNAP = /toHaveScreenshot\(([^)]+?)\.png\)/
 let seq = 0
 
@@ -22,13 +25,15 @@ export function timelineEntry(test: TestCase, result: TestResult, copy: (src: st
   const video = copy(clip.path, `video-${project}-${journey.toLowerCase()}-${++seq}.webm`.replace(/[^A-Za-z0-9._-]/g, '-'))
   if (!video) return null
   const at = (d: Date) => Math.max(0, Math.round(d.getTime() - result.startTime.getTime()))
-  const steps = result.steps.filter(s => STEP_CATEGORIES.has(s.category)).map(s => ({ title: s.title, atMs: at(s.startTime) }))
+  const steps = result.steps.filter(s => STEP_CATEGORIES.has(s.category)).map(s => ({ title: s.title.slice(0, MAX_TEXT), atMs: at(s.startTime) }))
   const marks: TimelineEntry['marks'] = []
-  for (const s of steps) {
+  for (const s of result.steps.filter(x => STEP_CATEGORIES.has(x.category))) {
     const stem = SNAP.exec(s.title)?.[1]
-    if (stem) marks.push({ kind: 'snap', name: stem, atMs: s.atMs })
+    if (stem) marks.push({ kind: 'snap', name: stem.slice(0, MAX_TEXT), atMs: at(s.startTime) })
   }
   const failed = result.status !== 'passed'
+  // tope de 20 marcas contando la failure, que va siempre
+  marks.splice(failed ? MAX_MARKS - 1 : MAX_MARKS)
   if (failed) marks.push({ kind: 'failure', atMs: result.duration })
-  return { journey, title: test.title, project, status: failed ? 'failed' : 'passed', video, durationMs: result.duration, steps, marks }
+  return { journey, title: test.title, project, status: failed ? 'failed' : 'passed', video, durationMs: result.duration, steps: steps.slice(0, MAX_STEPS), marks }
 }

@@ -30,6 +30,13 @@ describe('parseTimeline', () => {
     expect(e!.steps[0]!.title).toHaveLength(120)
     expect(e!.marks).toHaveLength(20)
   })
+  it('al recortar marcas conserva la failure', () => {
+    const marks = [...Array.from({ length: 25 }, (_, i) => ({ kind: 'snap', name: `n${i}`, atMs: i })), { kind: 'failure', atMs: 3000 }]
+    const [e] = parseTimeline({ version: 1, entries: [entry({ status: 'failed', marks })] }).entries
+    expect(e!.marks).toHaveLength(20)
+    expect(e!.marks.at(-1)).toEqual({ kind: 'failure', atMs: 3000 })
+    expect(e!.marks[0]).toMatchObject({ name: 'n0' })
+  })
   it('version distinta o no-objeto → vacío', () => {
     const empty = { version: 1, entries: [] }
     for (const raw of [null, 'x', 42, [], { version: 2, entries: [entry()] }, { version: 1 }, { version: 1, entries: 'x' }]) {
