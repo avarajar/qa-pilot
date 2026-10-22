@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PlaywrightTestConfig, Project } from '@playwright/test'
-import { loadContract, type QaContract } from 'qa-pilot'
+import { loadContract, videoProject, type QaContract } from 'qa-pilot'
 
 export const VIEWPORTS = {
   mobile: { width: 390, height: 844 },
@@ -54,6 +54,12 @@ export function defineQaConfig(overrides: PlaywrightTestConfig = {}, opts: { roo
   }
   if (projects.length === 0) {
     for (const [vp, viewport] of Object.entries(VIEWPORTS)) projects.push({ name: vp, use: { viewport } })
+  }
+
+  // con QA_PILOT_VIDEO=1 graba solo el proyecto del video; el resto no paga el costo
+  if (process.env.QA_PILOT_VIDEO === '1') {
+    const target = projects.find(p => p.name === videoProject(config))
+    if (target) target.use = { ...target.use, video: { mode: 'on', size: { width: 1280, height: 720 } } }
   }
 
   return {

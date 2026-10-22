@@ -161,6 +161,18 @@ describe('run', () => {
     expect(cwd.startsWith(mount)).toBe(true)
   })
 
+  it('pasa QA_PILOT_VIDEO al contenedor', async () => {
+    const root = repo(yaml())
+    const { proc, calls } = fakeProc(cmd => (cmd === 'npx --no-install playwright --version' ? { code: 0, out: 'Version 1.63.0' } : { code: 0, out: '' }))
+    process.env.QA_PILOT_E2E_DOCKER = '1'
+    try {
+      await run({ root, base: 'main', proc, waitUrl: async () => true })
+    } finally {
+      delete process.env.QA_PILOT_E2E_DOCKER
+    }
+    expect(calls.find(c => c.cmd.startsWith('docker run'))!.cmd).toContain('-e QA_PILOT_VIDEO')
+  })
+
   it('docker-compose levanta y baja el entorno', async () => {
     const root = repo(yaml().replace('env: command', 'env: docker-compose\n  compose_file: compose.yml'))
     const { proc, calls } = fakeProc((cmd, env) => {

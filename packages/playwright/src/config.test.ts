@@ -36,6 +36,23 @@ describe('defineQaConfig', () => {
     expect(c.reporter).toEqual([['list'], ['@qa-pilot/playwright/reporter', { outputDir: join(r, 'qa-results') }]])
   })
 
+  it('graba solo el proyecto del video con QA_PILOT_VIDEO=1', () => {
+    process.env.QA_PILOT_VIDEO = '1'
+    try {
+      const c = defineQaConfig({}, { root: root() })
+      const con = c.projects!.filter(p => (p.use as { video?: { mode?: string } }).video?.mode === 'on')
+      expect(con.map(p => p.name)).toEqual(['admin-desktop'])
+      expect(con[0]!.use!.video).toEqual({ mode: 'on', size: { width: 1280, height: 720 } })
+    } finally {
+      delete process.env.QA_PILOT_VIDEO
+    }
+  })
+
+  it('sin QA_PILOT_VIDEO no graba', () => {
+    const c = defineQaConfig({}, { root: root() })
+    expect(c.projects!.every(p => p.use!.video === undefined)).toBe(true)
+  })
+
   it('isolationHeader llega a los tests como opción; sin él no se manda nada', () => {
     const r = root()
     expect((defineQaConfig({}, { root: r, isolationHeader: 'x-qa-test' }).use as { qaIsolationHeader?: string }).qaIsolationHeader).toBe('x-qa-test')

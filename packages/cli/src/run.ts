@@ -119,7 +119,7 @@ export async function run(opts: RunOptions): Promise<Decision> {
         }
         cmd = dockerize(`corepack enable >/dev/null 2>&1 || true; ${cmd}`, {
           mount: realpathSync(gitTop(root)), cwd: realpathSync(appDir), version: v,
-          env: ['QA_PILOT_ROOT', 'QA_PILOT_OUT', 'QA_PILOT_URL', ...Object.keys(config.app.vars ?? {}), ...Object.keys(config.app.env_map ?? {}),
+          env: ['QA_PILOT_ROOT', 'QA_PILOT_OUT', 'QA_PILOT_URL', 'QA_PILOT_VIDEO', ...Object.keys(config.app.vars ?? {}), ...Object.keys(config.app.env_map ?? {}),
             ...Object.values(config.roles).flatMap(r => (r.password_env ? [r.password_env] : []))],
         })
       }
