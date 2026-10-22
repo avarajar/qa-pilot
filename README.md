@@ -33,8 +33,12 @@ Ver `docs/specs/2026-10-02-qa-pilot-fase-1-design.md`.
 
    El comando `setup` del proyecto instala dependencias y el navegador
    (`npm ci && npx playwright install --with-deps chromium`).
-3. Agrega el workflow (ver el encabezado de `.github/workflows/qa.yml`; necesita `contents: write` para el auto-merge) y exige el
-   status `qa-pilot/decision` en branch protection.
+3. Agrega el workflow (ver el encabezado de `.github/workflows/qa.yml`) y exige el
+   status `qa-pilot/decision` en branch protection. Sus `permissions` tienen que incluir
+   `contents: write` (auto-merge y rama de evidencia) y `actions: read`, **aunque el video
+   esté apagado**: un workflow reutilizable no puede pedir más permisos de los que le da
+   quien lo llama, y si falta alguno GitHub rechaza toda la corrida y `qa-pilot/decision`
+   nunca sale.
 4. En local: `qa-pilot run --base main` corre exactamente lo mismo que CI.
 
 Las imágenes base de screenshots se generan en Linux: `qa-pilot baselines` (Docker)
@@ -68,16 +72,25 @@ video:
   project: admin-desktop    # opcional: proyecto de Playwright que se graba
 ```
 
-El workflow del proyecto necesita además `actions: read` en `permissions` (ver el
-encabezado de `.github/workflows/qa.yml`).
+El workflow del proyecto ya debe tener `actions: read` en `permissions` (paso 3 de "Cómo se
+usa"): con él, el label baja los resultados de una corrida anterior.
 
 **Cuándo se genera.**
 - Si el router escala (`escalate`) o bloquea (`blocked`).
 - A mano, con el label `qa-video` (configurable con el input `video-label`), aunque el PR
   haya pasado solo. El label vale al ponerlo: genera el video de la última corrida sin
   repetir los tests. Si después llega un commit nuevo no se genera otro; para repetirlo,
-  quita y vuelve a poner el label. Si los resultados de esa corrida ya no están (vencen a
-  los 14 días o el PR avanzó de commit), el comentario lo avisa.
+  quita y vuelve a poner el label. Si la decisión del comentario no es del último commit (el
+  label llegó antes de que terminara la corrida, o el PR avanzó), qa-pilot deja un comentario
+  aparte que pide quitar y volver a poner el label cuando salga la decisión. Si los resultados
+  de esa corrida ya no están (vencen a los 14 días), la sección del video lo dice.
+
+**Qué muestra.** Los journeys con hallazgo (falla, cambio visual o a11y) salen completos y se
+detienen en el hallazgo; el resto va en un resumen de unos 2 s con su marca. Si ningún journey
+tiene hallazgo (el label en un PR que pasó solo, o un PR escalado solo por compuertas), cada
+journey grabado sale en un clip corto de hasta 6 s, acelerado hasta 4×; si no caben en
+`max_seconds`, los de número más alto vuelven al resumen. Un hallazgo que pasó solo en otro
+proyecto (por ejemplo, solo en mobile) se muestra con sus capturas y su mensaje, sin video.
 
 Con el video activado, el preset graba solo el proyecto elegido en cada corrida; el guion y
 el render, que es lo caro, ocurren solo en los casos de arriba. Con el secreto
