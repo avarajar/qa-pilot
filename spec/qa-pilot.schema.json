@@ -184,6 +184,27 @@
         }
       }
     },
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Video de QA por PR (apagado por defecto).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "max_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 300,
+          "default": 90
+        },
+        "project": {
+          "type": "string",
+          "description": "Proyecto de Playwright que se graba, p. ej. admin-desktop."
+        }
+      }
+    },
     "approvers": {
       "type": "array",
       "items": {

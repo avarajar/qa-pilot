@@ -9,7 +9,7 @@ import type { CheckResult, Diff, QaContract } from './types.js'
 const contract: QaContract = {
   root: '/repo',
   protectedPaths: ['supabase/migrations/**', 'web/src/app/(app)/celdas/[slug]/memoria/**'],
-  journeys: [{ id: 'J3', name: 'Editar memoria' }],
+  journeys: [{ id: 'J3', name: 'Editar memoria', description: '' }],
   config: {
     app: { env: 'command', dir: '.', url: 'http://localhost:3000', ready_timeout_s: 120 },
     auth: { adapter: 'none' },
@@ -17,6 +17,7 @@ const contract: QaContract = {
     checks: { e2e: 'npx playwright test' },
     router: { auto_max_lines: 200, visual_diff: 'warn', flaky_in_journey: 'escalate' },
     approvers: [],
+    video: { enabled: false, max_seconds: 90 },
   },
 }
 

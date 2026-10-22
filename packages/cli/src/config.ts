@@ -57,6 +57,7 @@ function readConfig(qaDir: string): QaConfig {
   data.roles ??= {}
   data.checks ??= {}
   data.router ??= {}
+  data.video ??= {}
   validate ??= ajv.compile(loadSchema())
   if (!validate(data)) {
     const detail = (validate.errors ?? []).map(e => `${e.instancePath || '/'} ${e.message ?? ''}`.trim()).join('; ')
@@ -74,11 +75,31 @@ export function parseProtectedPaths(text: string): string[] {
 
 export function parseJourneys(md: string): Journey[] {
   const out: Journey[] = []
+  let cur: Journey | undefined
+  let prose: string[] = []
+  // cierra el journey en curso con la prosa acumulada
+  const close = () => {
+    if (cur) cur.description = prose.join('\n').trim()
+    prose = []
+  }
   for (const line of md.split('\n')) {
     const m = /^##\s+(J\d+)\s*[·\-–—:]\s*(.+?)\s*$/.exec(line)
-    if (m) out.push({ id: m[1]!, name: m[2]! })
+    if (m || /^##\s/.test(line)) {
+      close()
+      cur = m ? { id: m[1]!, name: m[2]!, description: '' } : undefined
+      if (cur) out.push(cur)
+    } else prose.push(line)
   }
+  close()
   return out
+}
+
+// proyecto de Playwright que se graba: el rol por defecto en desktop (<rol>-<viewport>)
+export function videoProject(config: QaConfig): string {
+  if (config.video.project) return config.video.project
+  const roles = Object.entries(config.roles)
+  const role = (roles.find(([, r]) => r.expect !== 'rejected') ?? roles[0])?.[0]
+  return role ? `${role}-desktop` : 'desktop'
 }
 
 export function loadContract(root: string): QaContract {

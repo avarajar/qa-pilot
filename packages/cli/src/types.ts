@@ -1,3 +1,5 @@
+export type VideoConfig = { enabled: boolean; max_seconds: number; project?: string }
+
 export type Role = { email: string; password_env?: string; expect?: 'rejected' }
 
 export type QaConfig = {
@@ -23,9 +25,11 @@ export type QaConfig = {
   checks: { unit?: string; e2e?: string; security?: Array<'semgrep' | 'gitleaks'>; timeout_s: number }
   router: { auto_max_lines: number; visual_diff: 'warn' | 'escalate'; flaky_in_journey: 'warn' | 'escalate' }
   approvers: string[]
+  video: VideoConfig
 }
 
-export type Journey = { id: string; name: string }
+// description: prosa bajo el "## J<n> · nombre", sin el encabezado
+export type Journey = { id: string; name: string; description: string }
 
 export type QaContract = { root: string; config: QaConfig; protectedPaths: string[]; journeys: Journey[] }
 
@@ -64,4 +68,46 @@ export type Decision = {
   omittedFindings?: number
   // base de las URLs de las imágenes subidas por publish: <evidence><ruta de images>
   evidence?: string
+  video?: VideoState
+  approvedBy?: string
 }
+
+// Video de QA por PR
+export type TimelineEntry = {
+  journey: string // 'J1'
+  title: string // título del test, ≤ 120
+  project: string // 'admin-desktop'
+  status: 'passed' | 'failed'
+  video: string // 'artifacts/video-<algo>.webm'
+  durationMs: number
+  steps: Array<{ title: string; atMs: number }> // ≤ 50, title ≤ 120
+  marks: Array<{ kind: 'snap' | 'failure'; name?: string; atMs: number }> // name = stem de la captura, p. ej. 'notas-light'
+}
+export type Timeline = { version: 1; entries: TimelineEntry[] }
+
+export type JourneyStatus = 'pass' | 'changed' | 'failed'
+export type VideoSegment =
+  | { kind: 'cover'; seconds: number }
+  | { kind: 'clip'; journey: string; status: JourneyStatus; video: string; fromMs: number; toMs: number; playbackRate: number; seconds: number }
+  | { kind: 'stop'; journey: string; images?: { before?: string; after?: string }; text: string; ai: boolean; seconds: number }
+  | { kind: 'summary'; journeys: Array<{ journey: string; status: JourneyStatus }>; more: number; seconds: number }
+  | { kind: 'verdict'; seconds: number }
+export type VideoPlan = { version: 1; fps: 30; width: 1280; height: 720; segments: VideoSegment[]; totalSeconds: number }
+
+export type VideoFacts = {
+  pr: { number: number; title: string }
+  decision: Decision['decision']
+  gates: Gate[]
+  journeys: Array<{ id: string; name: string; status: JourneyStatus }>
+}
+export type VideoScript = {
+  cover: { title: string; subtitle: string } // title lo pone el código: 'PR #<n> · <título>'
+  captions: Record<string, string> // por journey: 'J1 · La persona entra y ve sus notas', ≤ 90
+  closing: string // ≤ 140
+  ai: boolean
+}
+
+export type VideoState =
+  | { state: 'pending' }
+  | { state: 'ready'; mp4: string; gif: string; seconds: number }
+  | { state: 'failed'; reason: string }

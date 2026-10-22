@@ -1,6 +1,6 @@
 import './commands.js'
 export { main, decide, summarize, expectedChecks } from './cli.js'
-export { loadContract, ConfigError } from './config.js'
+export { loadContract, ConfigError, videoProject, parseJourneys } from './config.js'
 export { route, readResults } from './router.js'
 export { ingest } from './ingest.js'
 export { parseDiff, gitDiff } from './diff.js'
