@@ -143,4 +143,18 @@ describe('qa-pilot video publish', () => {
     expect(calls[0]).toMatch(/video\.mp4/)
     expect(existsSync(join(out, 'video/video.mp4'))).toBe(true)
   })
+  it('con --reason no publica archivos aunque estén: el render no terminó bien', async () => {
+    const { out } = project(true)
+    mkdirSync(join(out, 'video'))
+    writeFileSync(join(out, 'video/video.mp4'), Buffer.concat([Buffer.alloc(4), Buffer.from('ftyp'), Buffer.alloc(8)]))
+    writeFileSync(join(out, 'video/preview.gif'), Buffer.from('GIF89a'))
+    writeFileSync(join(out, 'video/video.json'), JSON.stringify({ seconds: 12 }))
+    const { g, calls } = gh(renderComment(decision()))
+    let uploads = 0
+    ;(g as unknown as { uploadEvidence: () => Promise<string> }).uploadEvidence = async () => { uploads++; return 'https://x/raw/c/' }
+    await videoPublish(g, 7, out, 'el render falló o se pasó del tiempo', capture().io)
+    expect(uploads).toBe(0)
+    expect(calls[0]).toContain('el render falló o se pasó del tiempo')
+    expect(calls[0]).not.toMatch(/video\.mp4/)
+  })
 })

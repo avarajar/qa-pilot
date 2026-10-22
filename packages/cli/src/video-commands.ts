@@ -142,12 +142,15 @@ function readFile(file: string): Buffer | null {
 
 export async function videoPublish(gh: GitHub, pr: number, out: string, reason: string | undefined, io: Io): Promise<number> {
   const sha = readDecision(out)?.sha ?? (await gh.getPr(pr)).headSha
+  const failed = { failed: reason?.slice(0, 200) || 'no se pudo generar el video' }
+  // con --reason el render no terminó bien: lo que haya en video/ no es de fiar y no se publica
+  if (reason) { io.out(await publishVideo(gh, pr, sha, failed)); return 0 }
   const dir = join(out, 'video')
   const mp4 = readFile(join(dir, 'video.mp4'))
   const gif = readFile(join(dir, 'preview.gif'))
   const meta = existsSync(join(dir, 'video.json')) ? readJson(join(dir, 'video.json')) : undefined
   const seconds = obj(meta) && typeof meta.seconds === 'number' && Number.isFinite(meta.seconds) ? meta.seconds : null
-  const files = mp4 && gif && seconds !== null ? { mp4, gif, seconds } : { failed: reason?.slice(0, 200) || 'no se pudo generar el video' }
+  const files = mp4 && gif && seconds !== null ? { mp4, gif, seconds } : failed
   io.out(await publishVideo(gh, pr, sha, files))
   return 0
 }
