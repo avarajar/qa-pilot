@@ -34,9 +34,29 @@ describe('planVideo', () => {
     const desktop = visual('J1', { expected: 'artifacts/desk-e.png', marked: 'artifacts/desk-m.png' })
     const p = planVideo({ decision: dec([mobile, desktop]), timeline: t, maxSeconds: 90 })
     expect(p.segments.find(s => s.kind === 'stop')).toMatchObject({ images: { before: 'artifacts/desk-e.png', after: 'artifacts/desk-m.png' } })
-    // sin hallazgo del proyecto grabado, usa el que haya
+    // sin hallazgo del proyecto grabado: solo la parada con las capturas de mobile, sin el clip de desktop
     const solo = planVideo({ decision: dec([mobile]), timeline: t, maxSeconds: 90 })
+    expect(kinds(solo)).toEqual(['cover', 'stop:J1', 'verdict'])
     expect(solo.segments.find(s => s.kind === 'stop')).toMatchObject({ images: { before: 'artifacts/mob-e.png' } })
+  })
+  it('un fallo que pasó solo en otro proyecto se muestra sin clip', () => {
+    const t = tl(entry(1))
+    const d = dec([{ kind: 'test-failed', check: 'e2e', message: 'admin-mobile › entra: falló en mobile', journey: 'J1' }])
+    const p = planVideo({ decision: d, timeline: t, maxSeconds: 90 })
+    expect(kinds(p)).toEqual(['cover', 'stop:J1', 'verdict'])
+    expect(p.segments[1]).toMatchObject({ text: expect.stringContaining('falló en mobile') })
+  })
+  it('sin hallazgos en ningún journey (label en un PR auto): clips cortos de ≤ 6 s', () => {
+    const p = planVideo({ decision: dec(), timeline: tl(entry(1), entry(2, { durationMs: 60000 })), maxSeconds: 90 })
+    expect(kinds(p)).toEqual(['cover', 'clip:J1', 'clip:J2', 'verdict'])
+    expect(p.segments[1]).toMatchObject({ status: 'pass', fromMs: 0, toMs: 10000, seconds: 6 })
+    expect(p.segments[2]).toMatchObject({ status: 'pass', fromMs: 0, toMs: 24000, playbackRate: 4, seconds: 6 })
+  })
+  it('sin hallazgos y sin tiempo: los clips cortos vuelven al resumen, el número más alto primero', () => {
+    const p = planVideo({ decision: dec(), timeline: tl(entry(1), entry(2), entry(3)), maxSeconds: 20 })
+    expect(kinds(p)).toEqual(['cover', 'clip:J1', 'summary', 'verdict'])
+    expect(p.segments[2]).toMatchObject({ journeys: [{ journey: 'J2' }, { journey: 'J3' }] })
+    expect(p.totalSeconds).toBeLessThanOrEqual(20)
   })
   it('el mensaje de fallo de la parada es el del proyecto grabado', () => {
     const t = tl(entry(1, { status: 'failed', marks: [{ kind: 'failure', atMs: 6000 }] }))
@@ -141,8 +161,8 @@ describe('planVideo', () => {
     expect(p.segments[1]).toMatchObject({ journeys: [{ journey: 'J1', status: 'pass' }, { journey: 'J2', status: 'failed' }] })
   })
   it('ordena los journeys numéricamente', () => {
-    const p = planVideo({ decision: dec(), timeline: tl(entry(10), entry(2)), maxSeconds: 90 })
-    expect(p.segments[1]).toMatchObject({ journeys: [{ journey: 'J2' }, { journey: 'J10' }] })
+    const p = planVideo({ decision: dec([visual('J1')]), timeline: tl(entry(10), entry(2)), maxSeconds: 90 })
+    expect(p.segments[1]).toMatchObject({ journeys: [{ journey: 'J1' }, { journey: 'J2' }, { journey: 'J10' }] })
   })
 })
 
@@ -166,8 +186,10 @@ describe('previewPlan', () => {
     expect(p.totalSeconds).toBeLessThanOrEqual(8)
   })
   it('sin stop usa el primer clip recortado', () => {
+    // sin hallazgos el plan trae el clip corto: la vista previa lo recorta
     const p = previewPlan(planVideo({ decision: dec(), timeline: tl(entry(1)), maxSeconds: 90 }))
-    expect(kinds(p)).toEqual(['cover', 'verdict'])
+    expect(kinds(p)).toEqual(['cover', 'clip:J1', 'verdict'])
+    expect(p.totalSeconds).toBeLessThanOrEqual(8)
     const d = dec([{ kind: 'error', check: 'e', message: 'm', journey: 'J1' }])
     const q = previewPlan({ ...planVideo({ decision: d, timeline: tl(entry(1)), maxSeconds: 90 }), segments: planVideo({ decision: d, timeline: tl(entry(1)), maxSeconds: 90 }).segments.filter(s => s.kind !== 'stop') })
     expect(kinds(q)).toEqual(['cover', 'clip:J1', 'verdict'])

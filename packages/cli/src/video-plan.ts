@@ -2,7 +2,7 @@ import { changeSummary } from './comment.js'
 import type { Decision, JourneyStatus, Snapshot, Timeline, TimelineEntry, VideoPlan, VideoSegment } from './types.js'
 
 // plan puro: qué muestra el video, en qué orden y por cuánto tiempo (todo en centésimas para que la suma sea exacta)
-const COVER = 300, VERDICT = 400, STOP = 500, SUMMARY = 200, MIN_EACH = 50, JOURNEY_CAP_MS = 15000
+const COVER = 300, VERDICT = 400, STOP = 500, SUMMARY = 200, MIN_EACH = 50, JOURNEY_CAP_MS = 15000, SHORT_CAP_MS = 6000
 type Finding = Decision['findings'][number]
 const FAIL_KINDS = new Set(['test-failed', 'a11y', 'error'])
 const num = (j: string) => Number(j.slice(1))
@@ -10,6 +10,8 @@ const cents = (s: number) => Math.floor(s * 100 + 1e-6)
 const stem = (name: string) => name.split(' · ').pop() ?? name
 // el reporter nombra los hallazgos "<proyecto> › test" y las capturas "<proyecto> · nombre"
 const ofProject = (f: Finding, project: string) => f.message.startsWith(`${project} › `) || !!f.images?.some(s => s.name.startsWith(`${project} · `))
+// nombra un proyecto: si no es el del clip, el hallazgo es de otro proyecto
+const namesProject = (f: Finding) => /^\S+ › /.test(f.message) || !!f.images?.some(s => s.name.includes(' · '))
 
 export function journeyStatuses(d: Decision, t: Timeline): Map<string, JourneyStatus> {
   const out = new Map<string, JourneyStatus>()
@@ -25,8 +27,20 @@ export function journeyStatuses(d: Decision, t: Timeline): Map<string, JourneySt
 
 type Full = { journey: string; status: JourneyStatus; segs: VideoSegment[]; cost: number }
 
+const cost = (segs: VideoSegment[]) => segs.reduce((a, s) => a + cents(s.seconds), 0)
+
+// sin hallazgos en ningún journey: un vistazo corto (≤ 6 s) de cada recorrido
+function shortJourney(journey: string, e: TimelineEntry): Full {
+  const rate = Math.min(4, Math.max(1, e.durationMs / SHORT_CAP_MS))
+  const toMs = Math.min(e.durationMs, Math.floor(SHORT_CAP_MS * rate))
+  const segs: VideoSegment[] = toMs > 0
+    ? [{ kind: 'clip', journey, status: 'pass', video: e.video, fromMs: 0, toMs, playbackRate: rate, seconds: cents(toMs / 1000 / rate) / 100 }] : []
+  return { journey, status: 'pass', segs, cost: cost(segs) }
+}
+
 // journey completo: clip hasta la marca, parada con el hallazgo y clip hasta el final
-function fullJourney(journey: string, status: JourneyStatus, e: TimelineEntry, f: Finding): Full {
+// withClip false: el hallazgo pasó en otro proyecto; se muestra solo la parada (§5.1)
+function fullJourney(journey: string, status: JourneyStatus, e: TimelineEntry, f: Finding, withClip = true): Full {
   const end = e.durationMs
   let at: number | undefined
   let stop: Extract<VideoSegment, { kind: 'stop' }>
@@ -48,8 +62,8 @@ function fullJourney(journey: string, status: JourneyStatus, e: TimelineEntry, f
   const fromA = Math.max(0, mark - room), left = room - (mark - fromA)
   const clip = (fromMs: number, toMs: number): VideoSegment[] => toMs > fromMs
     ? [{ kind: 'clip', journey, status, video: e.video, fromMs, toMs, playbackRate: rate, seconds: cents((toMs - fromMs) / 1000 / rate) / 100 }] : []
-  const segs = [...clip(fromA, mark), stop, ...(at === undefined ? [] : clip(mark, Math.min(end, mark + left)))]
-  return { journey, status, segs, cost: segs.reduce((a, s) => a + cents(s.seconds), 0) }
+  const segs = withClip ? [...clip(fromA, mark), stop, ...(at === undefined ? [] : clip(mark, Math.min(end, mark + left)))] : [stop]
+  return { journey, status, segs, cost: cost(segs) }
 }
 
 export function planVideo({ decision, timeline, maxSeconds }: { decision: Decision; timeline: Timeline; maxSeconds: number }): VideoPlan {
@@ -64,13 +78,23 @@ export function planVideo({ decision, timeline, maxSeconds }: { decision: Decisi
     const stems = new Set((f?.images ?? []).map(s => stem(s.name)))
     const e = es.find(x => x.status === 'failed' || x.marks.some(m => m.kind === 'failure'))
       ?? es.find(x => x.marks.some(m => m.kind === 'snap' && m.name !== undefined && stems.has(m.name))) ?? es[0]
-    // la parada muestra el hallazgo del mismo proyecto que el clip, si lo hay
+    // la parada muestra el hallazgo del mismo proyecto que el clip; si solo lo hay de otro, va sin clip
+    let withClip = true
     if (e && f) {
       const fail = FAIL_KINDS.has(f.kind)
-      f = mine.find(x => (fail ? FAIL_KINDS.has(x.kind) : x.kind === 'visual-diff') && ofProject(x, e.project)) ?? f
+      const same = mine.find(x => (fail ? FAIL_KINDS.has(x.kind) : x.kind === 'visual-diff') && ofProject(x, e.project))
+      if (same) f = same
+      else withClip = !namesProject(f)
     }
     if (e && !f && e.status === 'failed') f = { kind: 'test-failed', check: 'e2e', message: 'El journey falló', journey: j }
-    if (e && f) full.set(j, fullJourney(j, status, e, f))
+    if (e && f) full.set(j, fullJourney(j, status, e, f, withClip))
+  }
+  // nada que mostrar con parada (p. ej. label en un PR auto): los journeys con clip van en corto
+  if (!full.size && !decision.findings.some(f => f.journey)) {
+    for (const j of statuses.keys()) {
+      const e = timeline.entries.find(x => x.journey === j)
+      if (e) full.set(j, shortJourney(j, e))
+    }
   }
   const ids = [...statuses.keys()]
   const used = () => ids.reduce((a, j) => a + (full.get(j)?.cost ?? SUMMARY), 0)
