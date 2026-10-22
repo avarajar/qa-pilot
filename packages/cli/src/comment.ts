@@ -65,13 +65,18 @@ export const isElements = (e: unknown): e is string[] =>
 // dentro de una celda de la tabla: escapado y sin romper columnas
 const cellText = (s: string) => esc(s).replace(/\|/g, '\\|')
 
-export function changeText(snap: Snapshot): string {
+// resumen del cambio; esc decide cómo se escapa el texto que viene del PR (la tabla del comentario lo escapa, el video no)
+function describeChange(snap: Snapshot, esc: (s: string) => string): string {
   const c = snap.change
   if (!isChange(c)) return ''
   const amount = `${c.percent < 0.1 ? 'menos de 0,1 %' : `${String(c.percent).replace('.', ',')} %`} de la captura (${c.pixels} ${c.pixels === 1 ? 'píxel' : 'píxeles'})`
-  if (isElements(snap.elements) && snap.elements.length) return `Cambió: ${cellText(snap.elements.join(', '))} · ${amount} · ${cellText(c.zone)}.`
-  return `Cambió ${amount}, ${cellText(c.zone)}.`
+  if (isElements(snap.elements) && snap.elements.length) return `Cambió: ${esc(snap.elements.join(', '))} · ${amount} · ${esc(c.zone)}.`
+  return `Cambió ${amount}, ${esc(c.zone)}.`
 }
+
+// sin escapar: para el video
+export const changeSummary = (snap: Snapshot): string => describeChange(snap, s => s)
+const changeText = (snap: Snapshot): string => describeChange(snap, cellText)
 
 // antes, después y diferencia de cada captura que cambió, con las imágenes que subió publish
 function visualChanges(d: Decision): string[] {

@@ -1,4 +1,4 @@
-import { changeText } from './comment.js'
+import { changeSummary } from './comment.js'
 import type { Decision, JourneyStatus, Snapshot, Timeline, TimelineEntry, VideoPlan, VideoSegment } from './types.js'
 
 // plan puro: qué muestra el video, en qué orden y por cuánto tiempo (todo en centésimas para que la suma sea exacta)
@@ -32,16 +32,19 @@ function fullJourney(journey: string, status: JourneyStatus, e: TimelineEntry, f
     const snap: Snapshot | undefined = marked ?? snaps[0]
     at = marked && e.marks.find(m => m.kind === 'snap' && m.name === stem(marked.name))?.atMs
     const images = snap ? { ...(snap.expected ? { before: snap.expected } : {}), ...(snap.marked ?? snap.actual ? { after: (snap.marked ?? snap.actual)! } : {}) } : undefined
-    stop = { kind: 'stop', journey, ...(images ? { images } : {}), text: (snap?.ai || (snap && changeText(snap))) || f.message.slice(0, 300), ai: !!snap?.ai, seconds: STOP / 100 }
+    stop = { kind: 'stop', journey, ...(images ? { images } : {}), text: (snap?.ai?.slice(0, 200) || (snap && changeSummary(snap))) || f.message.slice(0, 300), ai: !!snap?.ai, seconds: STOP / 100 }
   } else {
     at = e.marks.find(m => m.kind === 'failure')?.atMs
     stop = { kind: 'stop', journey, text: f.message.slice(0, 300), ai: false, seconds: STOP / 100 }
   }
   const mark = at === undefined ? end : Math.min(at, end)
   const rate = Math.min(4, Math.max(1, end / JOURNEY_CAP_MS))
+  // material máximo para que los clips del journey no pasen de 15 s: antes de la marca se conserva el tramo final y después, lo que sobre
+  const room = Math.floor(JOURNEY_CAP_MS * rate)
+  const fromA = Math.max(0, mark - room), left = room - (mark - fromA)
   const clip = (fromMs: number, toMs: number): VideoSegment[] => toMs > fromMs
     ? [{ kind: 'clip', journey, status, video: e.video, fromMs, toMs, playbackRate: rate, seconds: cents((toMs - fromMs) / 1000 / rate) / 100 }] : []
-  const segs = [...clip(0, mark), stop, ...(at === undefined ? [] : clip(mark, end))]
+  const segs = [...clip(fromA, mark), stop, ...(at === undefined ? [] : clip(mark, Math.min(end, mark + left)))]
   return { journey, status, segs, cost: segs.reduce((a, s) => a + cents(s.seconds), 0) }
 }
 
@@ -50,9 +53,14 @@ export function planVideo({ decision, timeline, maxSeconds }: { decision: Decisi
   const cap = cents(maxSeconds), budget = Math.max(0, cap - COVER - VERDICT)
   const full = new Map<string, Full>()
   for (const [j, status] of statuses) {
-    const e = timeline.entries.find(x => x.journey === j)
-    const mine = decision.findings.filter(f => f.journey === j)
-    const f = mine.find(x => FAIL_KINDS.has(x.kind)) ?? mine.find(x => x.kind === 'visual-diff')
+    const mine = decision.findings.filter(x => x.journey === j)
+    let f: Finding | undefined = mine.find(x => FAIL_KINDS.has(x.kind)) ?? mine.find(x => x.kind === 'visual-diff')
+    const es = timeline.entries.filter(x => x.journey === j)
+    // varios tests por journey: el que falló, si no el que tiene la captura del hallazgo, si no el primero
+    const stems = new Set((f?.images ?? []).map(s => stem(s.name)))
+    const e = es.find(x => x.status === 'failed' || x.marks.some(m => m.kind === 'failure'))
+      ?? es.find(x => x.marks.some(m => m.kind === 'snap' && m.name !== undefined && stems.has(m.name))) ?? es[0]
+    if (e && !f && e.status === 'failed') f = { kind: 'test-failed', check: 'e2e', message: 'El journey falló', journey: j }
     if (e && f) full.set(j, fullJourney(j, status, e, f))
   }
   const ids = [...statuses.keys()]
@@ -68,7 +76,10 @@ export function planVideo({ decision, timeline, maxSeconds }: { decision: Decisi
   const segments: VideoSegment[] = [{ kind: 'cover', seconds: COVER / 100 }]
   if (squeeze) {
     const shown = Math.min(ids.length, Math.floor(budget / MIN_EACH))
-    if (shown > 0) segments.push({ kind: 'summary', journeys: ids.slice(0, shown).map(journey => ({ journey, status: statuses.get(journey)! })), more: ids.length - shown, seconds: Math.min(budget, SUMMARY * shown) / 100 })
+    // los que no caben (more) son los de menor prioridad: pass, luego changed, luego failed; número más alto primero
+    const rank = { failed: 0, changed: 1, pass: 2 }
+    const keep = [...ids].sort((a, b) => rank[statuses.get(a)!] - rank[statuses.get(b)!] || num(a) - num(b)).slice(0, shown).sort((a, b) => num(a) - num(b))
+    if (shown > 0) segments.push({ kind: 'summary', journeys: keep.map(journey => ({ journey, status: statuses.get(journey)! })), more: ids.length - shown, seconds: Math.min(budget, SUMMARY * shown) / 100 })
   } else {
     let pending: Array<{ journey: string; status: JourneyStatus }> = []
     const flush = () => { if (pending.length) segments.push({ kind: 'summary', journeys: pending, more: 0, seconds: pending.length * SUMMARY / 100 }); pending = [] }

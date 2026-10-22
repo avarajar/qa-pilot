@@ -70,6 +70,48 @@ describe('planVideo', () => {
     expect((last as { more: number }).more).toBeGreaterThan(0)
     expect(p.totalSeconds).toBeLessThanOrEqual(90)
   })
+  it('varios tests por journey: usa el que falló', () => {
+    const t = tl(entry(1, { video: 'artifacts/a.webm' }), entry(1, { status: 'failed', video: 'artifacts/b.webm', marks: [{ kind: 'failure', atMs: 5000 }] }))
+    const d = dec([{ kind: 'test-failed', check: 'e2e', message: 'm', journey: 'J1' }])
+    const p = planVideo({ decision: d, timeline: t, maxSeconds: 90 })
+    expect(p.segments.filter(s => s.kind === 'clip').every(c => c.kind === 'clip' && c.video === 'artifacts/b.webm')).toBe(true)
+  })
+  it('varios tests por journey: sin fallo, usa el de la captura del hallazgo', () => {
+    const t = tl(entry(1, { video: 'artifacts/a.webm' }), entry(1, { video: 'artifacts/b.webm', marks: [{ kind: 'snap', name: 'notas-light', atMs: 3000 }] }))
+    const p = planVideo({ decision: dec([visual('J1')]), timeline: t, maxSeconds: 90 })
+    expect(p.segments.find(s => s.kind === 'clip')).toMatchObject({ video: 'artifacts/b.webm', toMs: 3000 })
+  })
+  it('el texto del stop no queda escapado para tabla', () => {
+    const t = tl(entry(1, { marks: [{ kind: 'snap', name: 'notas-light', atMs: 3000 }] }))
+    const d = dec([visual('J1', { elements: ['a > b | c'] })])
+    const stop = planVideo({ decision: d, timeline: t, maxSeconds: 90 }).segments.find(s => s.kind === 'stop')
+    expect(stop).toMatchObject({ text: expect.stringContaining('a > b | c') })
+  })
+  it('clip de 120 s con marca en 90 s: ≤ 15 s y el primer clip termina en la marca', () => {
+    const t = tl(entry(1, { durationMs: 120000, marks: [{ kind: 'snap', name: 'notas-light', atMs: 90000 }] }))
+    const p = planVideo({ decision: dec([visual('J1')]), timeline: t, maxSeconds: 90 })
+    const clips = p.segments.filter(s => s.kind === 'clip')
+    expect(clips[0]).toMatchObject({ toMs: 90000, playbackRate: 4 })
+    expect(clips.reduce((a, c) => a + c.seconds, 0)).toBeLessThanOrEqual(15)
+  })
+  it('journey fallido solo por el timeline: stop de respaldo', () => {
+    const p = planVideo({ decision: dec(), timeline: tl(entry(1, { status: 'failed' })), maxSeconds: 90 })
+    expect(p.segments.find(s => s.kind === 'stop')).toMatchObject({ text: 'El journey falló', ai: false })
+  })
+  it('el texto de la IA se recorta a 200', () => {
+    const t = tl(entry(1, { marks: [{ kind: 'snap', name: 'notas-light', atMs: 3000 }] }))
+    const stop = planVideo({ decision: dec([visual('J1', { ai: 'x'.repeat(500) })]), timeline: t, maxSeconds: 90 }).segments.find(s => s.kind === 'stop')
+    expect((stop as { text: string }).text).toHaveLength(200)
+  })
+  it('en apuros, los que van a more son los de menor prioridad', () => {
+    const ns = Array.from({ length: 200 }, (_, i) => i + 1)
+    const d = dec([{ kind: 'test-failed', check: 'e', message: 'm', journey: 'J200' }])
+    const p = planVideo({ decision: d, timeline: tl(...ns.map(n => entry(n))), maxSeconds: 90 })
+    const sum = p.segments.find(s => s.kind === 'summary') as { journeys: Array<{ journey: string }>; more: number }
+    expect(sum.more).toBeGreaterThan(0)
+    expect(sum.journeys.some(j => j.journey === 'J200')).toBe(true)
+    expect(sum.journeys.some(j => j.journey === 'J1')).toBe(true)
+  })
   it('timeline vacío: cover y verdict', () => {
     expect(kinds(planVideo({ decision: dec(), timeline: tl(), maxSeconds: 90 }))).toEqual(['cover', 'verdict'])
   })
