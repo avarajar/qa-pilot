@@ -5,6 +5,8 @@ import { Player } from '@remotion/player'
 import type { VideoPlan, VideoScript, VideoFacts } from 'qa-pilot'
 import { QaVideo, segmentFrames, totalFrames, type QaVideoProps } from './remotion/QaVideo.js'
 import { Stop } from './remotion/segments/Stop.js'
+import { Verdict } from './remotion/segments/Verdict.js'
+import { Summary } from './remotion/segments/Summary.js'
 
 const plan: VideoPlan = {
   version: 1, fps: 30, width: 1280, height: 720, totalSeconds: 19.5,
@@ -102,5 +104,23 @@ describe('Stop', () => {
     const c = render(<Player component={WithImages} compositionWidth={1280} compositionHeight={720} durationInFrames={30} fps={30} acknowledgeRemotionLicense />).container
     expect(c.textContent).toContain('Antes')
     expect(c.textContent).toContain('Después')
+  })
+})
+
+describe('Verdict y Summary caben en 720p', () => {
+  it('veredicto: hasta 4 compuertas, "y N más" y motivos recortados', () => {
+    const gates = Array.from({ length: 7 }, (_, i) => ({ id: `G${i + 1}`, reason: i === 0 ? 'x'.repeat(300) : `motivo ${i + 1}` }))
+    const t = render(<Verdict facts={{ ...facts, gates }} script={script} gateNames={{}} />).container.textContent!
+    expect(t).toContain('G4 · G4: motivo 4')
+    expect(t).not.toContain('G5')
+    expect(t).toContain('y 3 más')
+    expect(t).not.toContain('x'.repeat(121))
+    expect(t).toContain('…')
+  })
+  it('resumen con muchos journeys: dos columnas de 8 y el resto en "+N más"', () => {
+    const journeys = Array.from({ length: 30 }, (_, i) => ({ journey: `J${i + 1}`, status: 'pass' as const }))
+    const c = render(<Summary seg={{ kind: 'summary', journeys, more: 2, seconds: 5 }} facts={facts} />).container
+    expect(c.querySelectorAll('[data-row]')).toHaveLength(16)
+    expect(c.textContent).toContain('+16 más')
   })
 })
