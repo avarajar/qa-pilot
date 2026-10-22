@@ -425,6 +425,30 @@ describe('publishVideo', () => {
     expect(await publishVideo(gh, 7, 'sha1', ok)).toBe('updated')
     expect(extractDecision(state.comments.get(MARKER)!)?.video).toEqual({ state: 'failed', reason: 'no se pudo subir el video' })
   })
+  it('una aprobación que llega mientras sube el video no se pierde', async () => {
+    const { gh, state } = await seed()
+    const upload = gh.uploadEvidence
+    gh.uploadEvidence = async (files, message) => {
+      await approveCheck(gh, 7, { action: 'labeled', actor: 'avarajar', label: LABELS.approved }, ['avarajar'])
+      return upload(files, message)
+    }
+    expect(await publishVideo(gh, 7, 'sha1', ok)).toBe('updated')
+    const d = extractDecision(state.comments.get(MARKER)!)
+    expect(d?.approvedBy).toBe('avarajar')
+    expect(d?.video?.state).toBe('ready')
+  })
+  it('si mientras sube llega la decisión de un commit nuevo → stale, no la pisa', async () => {
+    const { gh, state } = await seed()
+    const upload = gh.uploadEvidence
+    gh.uploadEvidence = async (files, message) => {
+      await publish(gh, 7, decision({ sha: 'sha2' }), { video: true })
+      return upload(files, message)
+    }
+    expect(await publishVideo(gh, 7, 'sha1', ok)).toBe('stale')
+    const d = extractDecision(state.comments.get(MARKER)!)
+    expect(d?.sha).toBe('sha2')
+    expect(d?.video).toEqual({ state: 'pending' })
+  })
   it('después de approveCheck conserva "Aprobado por @x"', async () => {
     const { gh, state } = await seed()
     await approveCheck(gh, 7, { action: 'labeled', actor: 'avarajar', label: LABELS.approved }, ['avarajar'])

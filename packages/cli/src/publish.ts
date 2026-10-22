@@ -131,7 +131,12 @@ export async function publishVideo(
       video = { state: 'failed', reason: 'no se pudo subir el video' }
     }
   }
-  await gh.upsertComment(pr, MARKER, renderComment({ ...d, video }))
+  // la subida tarda: se vuelve a leer el comentario para no pisar una aprobación ni una corrida nueva
+  const now = await gh.findComment(pr, MARKER)
+  const fresh = now ? extractDecision(now) : null
+  if (!fresh) return 'missing'
+  if (fresh.sha !== sha) return 'stale'
+  await gh.upsertComment(pr, MARKER, renderComment({ ...fresh, video }))
   return 'updated'
 }
 
