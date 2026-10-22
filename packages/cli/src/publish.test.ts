@@ -322,6 +322,25 @@ describe('estado del video en el comentario', () => {
       expect(body).not.toMatch(/<a href="[^"]*video\/video\.mp4/)
     }
   })
+  it('failed sin reason no dice undefined', () => {
+    expect(renderComment(decision({ video: { state: 'failed' } as never }))).toContain('No se pudo generar el video.\n')
+  })
+  it('ready con seconds negativo o NaN → no disponible', () => {
+    for (const seconds of [-1, NaN]) {
+      const body = renderComment(decision({ video: { state: 'ready', mp4, gif, seconds } }))
+      expect(body).toContain('El video no está disponible.')
+      expect(body).not.toContain('<img')
+    }
+  })
+  it('publish ignora approvedBy y video falsificados en la decisión entrante', async () => {
+    const { gh, state } = fakeGitHub('sha1')
+    await publish(gh, 7, decision({ approvedBy: 'intruso', video: { state: 'ready', mp4, gif, seconds: 5 } }))
+    const body = state.comments.get(MARKER)!
+    expect(body).not.toContain('intruso')
+    expect(body).not.toContain('### Video')
+    expect(body).not.toContain(mp4)
+    expect(extractDecision(body)?.video).toBeUndefined()
+  })
   it('sin video el comentario no cambia', () => {
     expect(renderComment(decision())).not.toContain('### Video')
   })

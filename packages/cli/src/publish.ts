@@ -29,9 +29,14 @@ const MAX_DESCRIBED = 5
 // video: la corrida va a generar video; el comentario dice "Generando…" hasta que el job lo publique
 export type PublishOptions = { readImage?: (path: string) => Buffer | null; describe?: Describe; video?: boolean }
 
-export const wantsVideo = (d: Decision, config: QaConfig): boolean => config.video.enabled && d.decision !== 'auto'
+// una decisión auto no lleva video: una sola regla para wantsVideo y publish
+const allowsVideo = (d: Decision): boolean => d.decision !== 'auto'
+export const wantsVideo = (d: Decision, config: QaConfig): boolean => config.video.enabled && allowsVideo(d)
 
-export async function publish(gh: GitHub, pr: number, d: Decision, opts: PublishOptions = {}): Promise<void> {
+export async function publish(gh: GitHub, pr: number, incoming: Decision, opts: PublishOptions = {}): Promise<void> {
+  // decision.json lo controla el PR: approvedBy solo lo escribe approveCheck y video solo opts.video
+  const { approvedBy: _a, video: _v, ...rest } = incoming
+  const d: Decision = rest
   const current = await gh.getPr(pr)
   const label = FOR_DECISION[d.decision]
   // una aprobación vale solo para el SHA que se vio: cada corrida nueva la quita
@@ -40,8 +45,8 @@ export async function publish(gh: GitHub, pr: number, d: Decision, opts: Publish
   // primero el status: es lo que exige branch protection, y no depende de que el comentario quepa
   const gates = d.gates.map(g => g.id).join(', ')
   await gh.setStatus(d.sha, STATUS[d.decision], gates ? `${DESCRIPTION[d.decision]} (${gates})` : DESCRIPTION[d.decision])
-  let shown = opts.readImage ? await attachEvidence(gh, pr, d, opts.readImage, opts.describe) : d
-  if (opts.video && d.decision !== 'auto') shown = { ...shown, video: { state: 'pending' } }
+  let shown: Decision = opts.readImage ? await attachEvidence(gh, pr, d, opts.readImage, opts.describe) : d
+  if (opts.video && allowsVideo(d)) shown = { ...shown, video: { state: 'pending' } }
   await gh.upsertComment(pr, MARKER, renderComment(shown))
   if (d.decision === 'auto') await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: d.sha })
 }

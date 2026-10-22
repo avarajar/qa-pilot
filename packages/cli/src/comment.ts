@@ -33,7 +33,7 @@ function videoSection(d: Decision): string[] {
   const v = d.video
   if (!v) return []
   if (v.state === 'pending') return ['', '### Video', '', 'Generando video…']
-  if (v.state === 'failed') return ['', '### Video', '', `No se pudo generar el video: ${esc(String(v.reason))}`]
+  if (v.state === 'failed') return ['', '### Video', '', (typeof v.reason === 'string' && v.reason ? `No se pudo generar el video: ${esc(v.reason)}` : 'No se pudo generar el video.')]
   if (v.state !== 'ready') return []
   const ok = typeof v.mp4 === 'string' && typeof v.gif === 'string' && VIDEO_URL.test(v.mp4) && VIDEO_URL.test(v.gif) && v.mp4.endsWith('/video.mp4') && v.gif.endsWith('/preview.gif')
   if (!ok || !Number.isFinite(v.seconds) || v.seconds < 0) return ['', '### Video', '', 'El video no está disponible.']
