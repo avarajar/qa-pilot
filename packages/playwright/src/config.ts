@@ -60,6 +60,11 @@ export function defineQaConfig(overrides: PlaywrightTestConfig = {}, opts: { roo
   if (process.env.QA_PILOT_VIDEO === '1') {
     const target = projects.find(p => p.name === videoProject(config))
     if (target) target.use = { ...target.use, video: { mode: 'on', size: { width: 1280, height: 720 } } }
+    // un typo en video.project o unos projects propios dejan el video sin grabar: que se note
+    const name = videoProject(config)
+    if (!(overrides.projects ?? projects).some(p => p.name === name && (p.use as { video?: unknown } | undefined)?.video)) {
+      console.warn(`qa-pilot: QA_PILOT_VIDEO=1 pero ningún proyecto de Playwright es "${name}" con video: no se graba nada (revisa video.project)`)
+    }
   }
 
   return {

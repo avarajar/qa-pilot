@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -45,6 +45,21 @@ describe('defineQaConfig', () => {
       expect(con[0]!.use!.video).toEqual({ mode: 'on', size: { width: 1280, height: 720 } })
     } finally {
       delete process.env.QA_PILOT_VIDEO
+    }
+  })
+
+  it('avisa si QA_PILOT_VIDEO=1 y ningún proyecto es el del video', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    process.env.QA_PILOT_VIDEO = '1'
+    try {
+      defineQaConfig({ projects: [{ name: 'chromium' }] }, { root: root() })
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('admin-desktop'))
+      warn.mockClear()
+      defineQaConfig({}, { root: root() })
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      delete process.env.QA_PILOT_VIDEO
+      warn.mockRestore()
     }
   })
 
