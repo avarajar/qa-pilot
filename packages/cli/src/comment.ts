@@ -4,6 +4,8 @@ export const MARKER = '<!-- qa-pilot:decision'
 
 // las rutas de imágenes salen de resultados que controla el PR: solo PNG planos dentro de artifacts/
 export const EVIDENCE_PATH = /^artifacts\/[A-Za-z0-9._-]+\.png$/
+// los enlaces del video salen de un comentario que puede venir de un PR: solo estas dos formas
+const VIDEO_URL = /^https:\/\/[^\s"'<>]+\/video\/(video\.mp4|preview\.gif)$/
 const EVIDENCE_BASE = /^https:\/\/[^\s"'<>]+\/$/
 const MAX_VISUAL_ROWS = 10
 
@@ -24,9 +26,25 @@ const ICON = { pass: '✅', warn: '⚠️', fail: '❌' } as const
 // podría escribir su propio "<!-- qa-pilot:decision ... -->" dentro del comentario
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
+// '0:47'
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+
+function videoSection(d: Decision): string[] {
+  const v = d.video
+  if (!v) return []
+  if (v.state === 'pending') return ['', '### Video', '', 'Generando video…']
+  if (v.state === 'failed') return ['', '### Video', '', `No se pudo generar el video: ${esc(String(v.reason))}`]
+  if (v.state !== 'ready') return []
+  const ok = typeof v.mp4 === 'string' && typeof v.gif === 'string' && VIDEO_URL.test(v.mp4) && VIDEO_URL.test(v.gif) && v.mp4.endsWith('/video.mp4') && v.gif.endsWith('/preview.gif')
+  if (!ok || !Number.isFinite(v.seconds) || v.seconds < 0) return ['', '### Video', '', 'El video no está disponible.']
+  return ['', '### Video', '', `<a href="${v.mp4}"><img src="${v.gif}" width="480"></a>`, '', `<sub>Duración ${clock(v.seconds)} · clic para verlo completo</sub>`]
+}
+
 export function renderComment(d: Decision, opts: { approvedBy?: string } = {}): string {
-  const approved = d.decision === 'escalate' && opts.approvedBy
-  const lines = [`### qa-pilot`, '', approved ? `✅ **Aprobado por @${esc(opts.approvedBy!)}.**` : HEADLINE[d.decision]]
+  // approvedBy también viaja en el JSON: un re-render sin opts conserva la aprobación
+  const by = opts.approvedBy ?? d.approvedBy
+  const approved = d.decision === 'escalate' && typeof by === 'string' && by
+  const lines = [`### qa-pilot`, '', approved ? `✅ **Aprobado por @${esc(by as string)}.**` : HEADLINE[d.decision]]
   if (d.gates.length) {
     lines.push('', '**Por qué escala**', '')
     for (const g of d.gates) lines.push(`- **${g.id} · ${GATE_NAMES[g.id] ?? esc(g.id)}:** ${esc(g.reason)}`)
@@ -37,6 +55,7 @@ export function renderComment(d: Decision, opts: { approvedBy?: string } = {}): 
     for (const [name, status] of checks) lines.push(`| ${esc(name)} | ${ICON[status] ?? ''} ${esc(String(status))} |`)
   }
   lines.push(...visualChanges(d))
+  lines.push(...videoSection(d))
   if (d.findings.length) {
     lines.push('', '<details><summary>Hallazgos</summary>', '')
     for (const f of d.findings.slice(0, 30)) {

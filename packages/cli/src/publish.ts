@@ -1,7 +1,7 @@
 import { EVIDENCE_PATH, MARKER, extractDecision, isChange, isElements, renderComment } from './comment.js'
 import type { Describe } from './describe.js'
 import type { GitHub } from './github.js'
-import type { Decision, Snapshot } from './types.js'
+import type { Decision, QaConfig, Snapshot } from './types.js'
 
 export const LABELS = {
   auto: 'qa:auto',
@@ -26,7 +26,10 @@ const MAX_DESCRIBED = 5
 
 // readImage: lee una ruta relativa a qa-results; null si no existe o no se puede leer
 // describe: si está, cada captura con antes y después lleva una frase de qué cambió
-export type PublishOptions = { readImage?: (path: string) => Buffer | null; describe?: Describe }
+// video: la corrida va a generar video; el comentario dice "Generando…" hasta que el job lo publique
+export type PublishOptions = { readImage?: (path: string) => Buffer | null; describe?: Describe; video?: boolean }
+
+export const wantsVideo = (d: Decision, config: QaConfig): boolean => config.video.enabled && d.decision !== 'auto'
 
 export async function publish(gh: GitHub, pr: number, d: Decision, opts: PublishOptions = {}): Promise<void> {
   const current = await gh.getPr(pr)
@@ -37,7 +40,8 @@ export async function publish(gh: GitHub, pr: number, d: Decision, opts: Publish
   // primero el status: es lo que exige branch protection, y no depende de que el comentario quepa
   const gates = d.gates.map(g => g.id).join(', ')
   await gh.setStatus(d.sha, STATUS[d.decision], gates ? `${DESCRIPTION[d.decision]} (${gates})` : DESCRIPTION[d.decision])
-  const shown = opts.readImage ? await attachEvidence(gh, pr, d, opts.readImage, opts.describe) : d
+  let shown = opts.readImage ? await attachEvidence(gh, pr, d, opts.readImage, opts.describe) : d
+  if (opts.video && d.decision !== 'auto') shown = { ...shown, video: { state: 'pending' } }
   await gh.upsertComment(pr, MARKER, renderComment(shown))
   if (d.decision === 'auto') await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: d.sha })
 }
@@ -104,7 +108,7 @@ export async function approveCheck(
     const current = await gh.getPr(pr)
     const remove = [LABELS.needsHuman].filter(l => current.labels.includes(l))
     await gh.setLabels(pr, current.labels.includes(LABELS.approved) ? [] : [LABELS.approved], remove)
-    await gh.upsertComment(pr, MARKER, renderComment(r.decision, { approvedBy: ev.actor }))
+    await gh.upsertComment(pr, MARKER, renderComment({ ...r.decision, approvedBy: ev.actor }))
     if (ev.commentId) await gh.react(ev.commentId, '+1')
     await gh.enableAutoMerge({ number: pr, nodeId: current.nodeId, sha: r.decision.sha })
     return { approved: true, reason: r.reason }

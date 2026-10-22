@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { publish, approveCheck, LABELS } from './publish.js'
+import { publish, approveCheck, wantsVideo, LABELS } from './publish.js'
 import { renderComment, extractDecision, MARKER } from './comment.js'
 import type { GitHub } from './github.js'
-import type { Decision } from './types.js'
+import type { Decision, QaConfig } from './types.js'
 
 function fakeGitHub(headSha = 'sha1', labels: string[] = []) {
   const state = {
@@ -291,5 +291,67 @@ describe('approveCheck', () => {
     const { gh } = await setup('sha1', decision({ decision: 'blocked' }))
     const r = await approveCheck(gh, 7, { action: 'labeled', actor: 'avarajar', label: LABELS.approved }, ['avarajar'])
     expect(r.approved).toBe(false)
+  })
+})
+
+describe('estado del video en el comentario', () => {
+  const mp4 = 'https://github.com/o/r/raw/c0ffee/pr-7/abc1234/video/video.mp4'
+  const gif = 'https://github.com/o/r/raw/c0ffee/pr-7/abc1234/video/preview.gif'
+  it('pending → sección Video con "Generando video…", antes de Hallazgos', () => {
+    const body = renderComment(decision({ video: { state: 'pending' }, findings: [{ check: 'e2e', kind: 'fail', message: 'x' } as never] }))
+    expect(body).toContain('### Video')
+    expect(body).toContain('Generando video…')
+    expect(body.indexOf('### Video')).toBeLessThan(body.indexOf('<details><summary>Hallazgos'))
+  })
+  it('ready → gif enlazado al mp4 y duración m:ss', () => {
+    const body = renderComment(decision({ video: { state: 'ready', mp4, gif, seconds: 47 } }))
+    expect(body).toContain(`<a href="${mp4}"><img src="${gif}" width="480"></a>`)
+    expect(body).toContain('0:47')
+  })
+  it('failed → motivo escapado', () => {
+    const body = renderComment(decision({ video: { state: 'failed', reason: '<b>-->boom' } }))
+    expect(body).toContain('No se pudo generar el video: &lt;b&gt;--&gt;boom')
+    expect(extractDecision(body)?.sha).toBe('sha1')
+  })
+  it('ready con URL fuera del patrón → sin imagen ni link', () => {
+    for (const bad of [{ mp4: 'http://x.com/video/video.mp4', gif }, { mp4, gif: 'https://x.com/a"onerror=1/video/preview.gif' }, { mp4: 'javascript:alert(1)', gif }]) {
+      const body = renderComment(decision({ video: { state: 'ready', ...bad, seconds: 5 } }))
+      expect(body).not.toContain('<img src="https://x.com')
+      expect(body).not.toContain('<a href="javascript')
+      expect(body).not.toContain('<a href="http://')
+      expect(body).not.toMatch(/<a href="[^"]*video\/video\.mp4/)
+    }
+  })
+  it('sin video el comentario no cambia', () => {
+    expect(renderComment(decision())).not.toContain('### Video')
+  })
+  it('approveCheck conserva la sección del video y approvedBy', async () => {
+    const { gh, state } = fakeGitHub('sha1')
+    await publish(gh, 7, decision(), { video: true })
+    expect(state.comments.get(MARKER)).toContain('Generando video…')
+    await approveCheck(gh, 7, { action: 'labeled', actor: 'avarajar', label: LABELS.approved }, ['avarajar'])
+    const body = state.comments.get(MARKER)!
+    expect(body).toContain('### Video')
+    expect(body).toContain('Aprobado por @avarajar')
+    expect(extractDecision(body)?.approvedBy).toBe('avarajar')
+  })
+  it('un re-render posterior mantiene la aprobación guardada en el JSON', () => {
+    const d = extractDecision(renderComment(decision({ approvedBy: 'avarajar' })))!
+    expect(renderComment(d)).toContain('Aprobado por @avarajar')
+  })
+  it('publish con video: true en auto no marca pending', async () => {
+    const { gh, state } = fakeGitHub('sha1')
+    await publish(gh, 7, decision({ decision: 'auto', gates: [] }), { video: true })
+    expect(state.comments.get(MARKER)).not.toContain('### Video')
+  })
+})
+
+describe('wantsVideo', () => {
+  const cfg = (enabled: boolean) => ({ video: { enabled, max_seconds: 90 } }) as QaConfig
+  it('solo con video activo y decisión distinta de auto', () => {
+    expect(wantsVideo(decision(), cfg(true))).toBe(true)
+    expect(wantsVideo(decision({ decision: 'blocked' }), cfg(true))).toBe(true)
+    expect(wantsVideo(decision({ decision: 'auto' }), cfg(true))).toBe(false)
+    expect(wantsVideo(decision(), cfg(false))).toBe(false)
   })
 })
